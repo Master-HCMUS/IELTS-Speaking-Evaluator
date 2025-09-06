@@ -1,0 +1,65 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+.envrc
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Test / coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+logs/
+*.log
+
+# Data artifacts (runtime generated)
+data/
+!data/.gitkeep
+
+# Node/Electron (future UI shell)
+node_modules/
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reports / exports
+*.pdf
+
+# Temporary files
+*.tmp
+*.bak
+
+# Generated snapshots (can be reproduced)
+export/
+
+# Ignore session-specific audio
+*.wav
+
+# Allow tests fixtures if needed
+!tests/fixtures/**

@@ -8,24 +8,20 @@ These guidelines steer AI code suggestions so all contributions remain tightly a
 3. Local‑First: Optimize for offline/local processing; Azure calls only where defined (transcription, optional realtime, audio completions).
 4. Separation of Concerns: Follow component boundaries (audio, transcription, features, scoring, storage, export, ui shell). Prefer clean architecture principles.
 5. Extensibility: Design storage & scoring so future Azure backends / ML calibration can slot in without breaking existing interfaces.
+6. Reference `docs/speficication.md` for authoritative PoC requirements and acceptance criteria.
+7. Reference `docs/plan/*` — feature and supporting implementation plans
 
-## Storage Rules
-- Use the structured file layout described in the spec (no SQLite unless a future plan revision says otherwise).
-- All JSON artifacts include `schema_version`.
-- Mutations go through a `StorageBackend` abstraction (implement `LocalFileStorageBackend` first).
-- Atomic writes: write to temp + rename for critical indexes.
-
-## Naming Conventions (Python)
-- Packages: `audio`, `transcription`, `features`, `scoring`, `storage`, `export`, `ui` (if Python-based helpers), `config`, `scripts`.
-- Public functions: snake_case; classes: PascalCase; constants: UPPER_CASE.
-- Feature extraction returns a `FeatureSet` dataclass / Pydantic model.
-- Scoring returns a `ScoreSet` with per criterion bands + rationale text.
-
-## Interfaces (High-Level Contracts)
-- `Transcriber`: `transcribe(audio_path) -> Transcript` (`Transcript` includes words with start_ms, end_ms, confidence, and full text).
-- `FeatureExtractor`: `extract(transcript: Transcript, audio_meta) -> FeatureSet`.
-- `ScoringEngine`: `score(features: FeatureSet) -> ScoreSet`.
-- `StorageBackend`: responsible for session lifecycle persistence and export snapshots.
+## Change workflow (how to respond when editing files)
+- Start with a brief, step-by-step plan.
+- Group changes by file, using the file path as the header.
+- For each file:
+  - Give a short summary of what changes are needed.
+  - Provide exactly one code block per file.
+  - The code block must:
+    - Start with four backticks and a language id (e.g., markdown, typescript, python).
+    - Include a first-line comment with the absolute filepath.
+    - Show only the changes; use comments like “...existing code...” for unchanged regions.
+- Keep responses concise, professional, and deterministic. Do not include chain-of-thought; prefer succinct, actionable notes.
 
 ## Testing Expectations
 - Each new feature must include at least one unit test (pytest assumed) referencing the task ID.
@@ -34,7 +30,6 @@ These guidelines steer AI code suggestions so all contributions remain tightly a
 
 ## Error Handling & Logging
 - Use structured logging (JSON or key=value) for pipeline stages (capture, transcribe, features, score, export) including latency metrics.
-- Raise domain-specific exceptions: `TranscriptionError`, `FeatureExtractionError`, `ScoringError`, `StorageError`.
 
 ## Performance Targets
 - Keep feature extraction functions pure & fast (target << 500ms for 2‑minute transcript on average hardware).
@@ -67,7 +62,5 @@ These guidelines steer AI code suggestions so all contributions remain tightly a
 - Adding databases unless P02 is revised
 
 ## When In Doubt
+Ask for decision making
 Consult `P00_overview.md` index and associated plan file; if ambiguity remains, add a TODO with the task ID and minimal stub—do not over-engineer.
-
----
-Last updated: 2025-09-06
