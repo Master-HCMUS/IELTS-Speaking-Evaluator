@@ -44,10 +44,26 @@ def test_lifecycle(tmp_path, monkeypatch):
     backend.save_features(sid, make_features())
     backend.save_scores(sid, make_scores())
 
+    # Export snapshot
+    snapshot = backend.export_snapshot(sid)
+    assert snapshot["session"]["session_id"] == sid
+
+    # Integrity scan
+    scan = backend.integrity_scan()
+    assert scan["checked"] == 1
+    assert not scan["problems"]
+
     sessions = backend.list_sessions()
     assert len(sessions) == 1
     assert sessions[0].overall_band == 6.25
 
     scores = backend.load_scores(sid)
-    assert scores is not None
-    assert scores.overall_band == 6.25
+    assert scores is not None and scores.overall_band == 6.25
+
+    # Delete session
+    backend.delete_session(sid)
+    assert backend.list_sessions() == []
+
+    # Integrity after delete
+    post_scan = backend.integrity_scan()
+    assert post_scan["checked"] == 0

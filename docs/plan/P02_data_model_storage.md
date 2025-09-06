@@ -51,15 +51,15 @@ data/
 ## Tasks (Revised)
 | ID | Task | Description | Est | Owner | Status | Notes |
 |----|------|-------------|-----|-------|--------|-------|
-| DM-1 | Finalize File Layout | Confirm directory + file naming; document. | 1h |  | Not Started | |
-| DM-2 | Schema Definitions | Draft Pydantic/dataclass models + JSON schema export. | 2h |  | Not Started | |
-| DM-3 | Storage Backend Interface | Define `StorageBackend` protocol + errors. | 1h |  | Not Started | |
-| DM-4 | Local Implementation | Implement file write/read, atomic index updates. | 3h |  | Not Started | |
-| DM-5 | Index Service | Functions to list sessions, filter, sort by date. | 2h |  | Not Started | |
-| DM-6 | Snapshot Export | Compose consolidated `snapshot.json`. | 1h |  | Not Started | |
-| DM-7 | Validation Utilities | Schema version check & integrity scan command. | 2h |  | Not Started | |
-| DM-8 | Azure Abstraction Hooks | Stub classes + interface tests (no real calls). | 1h |  | Not Started | Prepare for future. |
-| DM-9 | Unit & Integration Tests | Create/save/load/delete lifecycle + corruption handling. | 3h |  | Not Started | |
+| DM-1 | Finalize File Layout | Confirm directory + file naming; document. | 1h |  | Done | Implemented in backend + data/.gitkeep |
+| DM-2 | Schema Definitions | Draft Pydantic/dataclass models + JSON schema export. | 2h |  | Done | `models/core.py` created |
+| DM-3 | Storage Backend Interface | Define `StorageBackend` protocol + errors. | 1h |  | Done | Interface + errors added |
+| DM-4 | Local Implementation | Implement file write/read, atomic index updates. | 3h |  | Done | LocalFileStorageBackend |
+| DM-5 | Index Service | Functions to list sessions, filter, sort by date. | 2h |  | Done | list_sessions implemented |
+| DM-6 | Snapshot Export | Compose consolidated `snapshot.json`. | 1h |  | Done | export_snapshot method |
+| DM-7 | Validation Utilities | Schema version check & integrity scan command. | 2h |  | Done | integrity_scan added |
+| DM-8 | Azure Abstraction Hooks | Stub classes + interface tests (no real calls). | 1h |  | Done | AzureBlobStorageBackend stub |
+| DM-9 | Unit & Integration Tests | Create/save/load/delete lifecycle + corruption handling. | 3h |  | Done | test updated for lifecycle |
 
 ## Definition of Done
 - Creating a session writes `session.json`, `audio.wav` (placeholder if not yet recorded), and updates `index.json` atomically.

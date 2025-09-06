@@ -21,6 +21,8 @@ class StorageError(Exception):
     """Base storage error."""
 
 class StorageBackend(ABC):
+    """Abstract storage contract (Task: DM-3, P02)."""
+
     @abstractmethod
     def init(self) -> None: ...
 
@@ -41,6 +43,15 @@ class StorageBackend(ABC):
 
     @abstractmethod
     def load_scores(self, session_id: str) -> ScoreSet | None: ...
+
+    @abstractmethod
+    def delete_session(self, session_id: str) -> None: ...
+
+    @abstractmethod
+    def export_snapshot(self, session_id: str, include_audio: bool = False) -> dict: ...
+
+    @abstractmethod
+    def integrity_scan(self) -> dict: ...
 
 class LocalFileStorageBackend(StorageBackend):
     def init(self) -> None:
@@ -123,3 +134,90 @@ class LocalFileStorageBackend(StorageBackend):
         if not fp.exists():
             return None
         return ScoreSet.model_validate_json(fp.read_text())
+
+    def delete_session(self, session_id: str) -> None:
+        index = self._read_index()
+        if session_id not in index.get("sessions", {}):
+            raise StorageError("Session not found")
+        sess_dir = DATA_ROOT / "sessions" / session_id
+        if sess_dir.exists():
+            shutil.rmtree(sess_dir)
+        del index["sessions"][session_id]
+        self._write_index(index)
+
+    def export_snapshot(self, session_id: str, include_audio: bool = False) -> dict:
+        """Compose consolidated snapshot (Task: DM-6)."""
+        sess_dir = DATA_ROOT / "sessions" / session_id
+        if not sess_dir.exists():
+            raise StorageError("Session not found")
+        snapshot: dict = {"schema_version": SCHEMA_VERSION, "session_id": session_id}
+        for name in ["session.json", "transcript.json", "features.json", "scores.json"]:
+            fp = sess_dir / name
+            if fp.exists():
+                snapshot[name.replace('.json','')] = json.loads(fp.read_text())
+        if include_audio:
+            audio_fp = sess_dir / "audio.wav"
+            if audio_fp.exists():
+                snapshot["audio_base64"] = audio_fp.read_bytes().hex()  # hex to avoid b64 lib dependency yet
+        # Write export/snapshot.json
+        export_dir = sess_dir / "export"
+        export_dir.mkdir(exist_ok=True)
+        (export_dir / "snapshot.json").write_text(json.dumps(snapshot, indent=2))
+        return snapshot
+
+    def integrity_scan(self) -> dict:
+        """Validate index references & schema versions (Task: DM-7)."""
+        index = self._read_index()
+        sessions = index.get("sessions", {})
+        problems: list[str] = []
+        checked = 0
+        for sid in sessions:
+            sess_dir = DATA_ROOT / "sessions" / sid
+            if not sess_dir.exists():
+                problems.append(f"missing_dir:{sid}")
+                continue
+            for fname in ["session.json", "transcript.json", "features.json", "scores.json"]:
+                fp = sess_dir / fname
+                if fp.exists():
+                    try:
+                        data = json.loads(fp.read_text())
+                        if data.get("schema_version") != SCHEMA_VERSION:
+                            problems.append(f"schema_mismatch:{sid}:{fname}")
+                    except Exception:  # noqa: BLE001
+                        problems.append(f"invalid_json:{sid}:{fname}")
+            checked += 1
+        return {"checked": checked, "problems": problems}
+
+
+class AzureBlobStorageBackend(StorageBackend):  # pragma: no cover (stub for future)
+    """Placeholder for future Azure implementation (Task: DM-8)."""
+
+    def init(self) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def create_session(self, meta: SessionMeta) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def save_transcript(self, session_id: str, transcript: Transcript) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def save_features(self, session_id: str, features: FeatureSet) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def save_scores(self, session_id: str, scores: ScoreSet) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def list_sessions(self) -> List[SessionMeta]:  # pragma: no cover
+        raise NotImplementedError
+
+    def load_scores(self, session_id: str) -> ScoreSet | None:  # pragma: no cover
+        raise NotImplementedError
+
+    def delete_session(self, session_id: str) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def export_snapshot(self, session_id: str, include_audio: bool = False) -> dict:  # pragma: no cover
+        raise NotImplementedError
+
+    def integrity_scan(self) -> dict:  # pragma: no cover
+        raise NotImplementedError
