@@ -1,0 +1,27 @@
+# IELTS Speaking Audio Recorder - Core Dependencies
+# Cross-platform audio recording for speech evaluation
+
+# Audio Processing Libraries
+sounddevice>=0.4.6          # Cross-platform audio I/O library
+scipy>=1.10.0               # Scientific computing library (includes wavfile)
+numpy>=1.21.0               # Numerical computing library
+
+# Azure OpenAI Integration
+openai>=1.12.0              # OpenAI Python client (supports Azure OpenAI)
+azure-identity>=1.15.0      # Azure authentication library for managed identity
+azure-core>=1.29.0          # Azure core library for HTTP operations
+requests>=2.31.0            # HTTP library for API calls
+
+# Environment Configuration
+python-dotenv>=1.0.0        # Load environment variables from .env file
+
+# Optional Dependencies for Enhanced Features
+# Uncomment if you need additional audio processing capabilities
+# librosa>=0.10.0           # Audio analysis library
+# pydub>=0.25.1             # Audio manipulation library
+
+# Development Dependencies (optional, for testing and development)
+# pytest>=7.0.0             # Testing framework
+# pytest-cov>=4.0.0         # Coverage testing
+# black>=22.0.0             # Code formatter
+# flake8>=5.0.0             # Code linter

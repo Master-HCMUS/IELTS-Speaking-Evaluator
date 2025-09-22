@@ -1,0 +1,6 @@
+# This file ensures the recordings directory is tracked by git
+# but the actual recording files are ignored (see .gitignore)
+
+This directory contains audio recordings saved by the IELTS Speaking Audio Recorder.
+
+Recordings are saved here with timestamps or custom names as WAV files.
