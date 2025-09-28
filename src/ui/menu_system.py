@@ -47,12 +47,14 @@ class MenuSystem:
         print("  [1] Start Recording")
         print("  [2] Record + Transcribe")
         print("  [3] Transcribe Existing File")
-        print("  [4] List Audio Devices")
-        print("  [5] Select Audio Device")
-        print("  [6] Configure Settings")
-        print("  [7] Configure Azure OpenAI")
-        print("  [8] View Current Settings")
-        print("  [9] Test Azure Connection")
+        print("  [4] Assess Pronunciation")
+        print("  [5] Comprehensive Assessment (Transcribe + Pronunciation)")
+        print("  [6] List Audio Devices")
+        print("  [7] Select Audio Device")
+        print("  [8] Configure Settings")
+        print("  [9] Configure Azure OpenAI")
+        print("  [10] View Current Settings")
+        print("  [11] Test Azure Connection")
         print("  [h] Help")
         print("  [q] Quit")
         print()
@@ -235,12 +237,14 @@ Commands:
   1. Start Recording - Begin recording audio from your microphone
   2. Record + Transcribe - Record audio and automatically transcribe with Azure OpenAI
   3. Transcribe Existing File - Convert existing WAV files to text
-  4. List Audio Devices - Show available microphone inputs
-  5. Select Audio Device - Choose a specific microphone
-  6. Configure Settings - Change audio parameters (sample rate, channels, etc.)
-  7. Configure Azure OpenAI - Set up speech-to-text transcription
-  8. View Current Settings - Display current configuration
-  9. Test Azure Connection - Verify Azure OpenAI connectivity
+  4. Assess Pronunciation - Evaluate pronunciation of existing audio files
+  5. Comprehensive Assessment - Full analysis (transcription + pronunciation)
+  6. List Audio Devices - Show available microphone inputs
+  7. Select Audio Device - Choose a specific microphone
+  8. Configure Settings - Change audio parameters (sample rate, channels, etc.)
+  9. Configure Azure OpenAI - Set up speech-to-text transcription
+  10. View Current Settings - Display current configuration
+  11. Test Azure Connection - Verify Azure OpenAI connectivity
   h. Help - Show this help message
   q. Quit - Exit the application
 
@@ -252,18 +256,34 @@ Recording Process:
   • Files are saved in the 'recordings/' directory as WAV files
 
 Transcription Process:
-  • Configure Azure OpenAI endpoint and deployment name
-  • Authenticate with 'az login' command
+  • Configure Azure OpenAI endpoint and API key in .env file
   • Record audio or select existing file
   • Get real-time speech-to-text results
   • Save transcriptions as text files
 
+Pronunciation Assessment:
+  • Configure Azure Speech service API key and region in .env file
+  • Select existing audio file for assessment
+  • Provide reference text or use transcription
+  • Get detailed pronunciation scores (accuracy, fluency, completeness)
+  • View word-level analysis and feedback
+  • Save assessment results as text files
+
+Comprehensive Assessment:
+  • Combines transcription and pronunciation evaluation
+  • Uses transcribed text as reference for pronunciation scoring
+  • Provides complete speech analysis in one step
+
 Azure OpenAI Setup:
   • Create an Azure OpenAI resource in Azure portal
   • Deploy a Whisper model (e.g., 'whisper')
-  • Get your endpoint URL (https://your-resource.openai.azure.com)
-  • Use 'az login' for authentication
-  • Configure endpoint and deployment in the app
+  • Get your endpoint URL and API key
+  • Add configuration to .env file
+
+Azure Speech Service Setup:
+  • Create an Azure Speech service resource
+  • Get your API key and region
+  • Add AZURE_SPEECH_API_KEY and AZURE_SPEECH_REGION to .env file
 
 Tips:
   • Use Ctrl+C to interrupt and save current recording

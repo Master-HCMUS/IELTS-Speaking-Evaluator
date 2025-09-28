@@ -8,18 +8,22 @@ A professional, modular Python application for recording high-quality audio from
 - **Cross-Platform Compatibility**: Works on Windows, macOS, and Linux
 - **High-Quality Audio Recording**: Configurable sample rates, channels, and audio formats
 - **AI-Powered Transcription**: Azure OpenAI Whisper integration for speech-to-text
+- **Pronunciation Assessment**: Azure Speech Service integration for detailed pronunciation scoring
+- **Comprehensive Analysis**: Combined transcription and pronunciation evaluation
 - **Intuitive CLI Interface**: Easy-to-use command-line interface with clear prompts
 - **Real-Time Feedback**: Visual indicators and recording status updates
-- **Flexible Configuration**: Customizable audio and Azure settings
+- **Flexible Configuration**: Customizable audio and Azure settings with .env file support
 - **Graceful Error Handling**: Robust exception handling and recovery
 - **Emergency Save**: Automatic saving when interrupted (Ctrl+C)
 
 ### Advanced Features
 - **Modular Architecture**: Clean separation of concerns for maintainability
-- **Multiple Recording Modes**: Interactive mode, quick recording, and auto-transcription
-- **File Management**: Organized storage and transcription management
-- **Azure Authentication**: Managed identity and Azure CLI credential support
-- **Comprehensive Logging**: Detailed transcription with timing and confidence scores
+- **Multiple Assessment Modes**: Transcription-only, pronunciation-only, or comprehensive analysis
+- **Word-Level Analysis**: Detailed feedback on individual word pronunciation
+- **Multiple Scoring Metrics**: Accuracy, fluency, completeness, and overall pronunciation scores
+- **File Management**: Organized storage of recordings, transcriptions, and assessment results
+- **Secure Authentication**: API key-based authentication via .env configuration
+- **Comprehensive Reporting**: Detailed assessment results with actionable feedback
 - **Storage Management**: File organization and cleanup utilities
 
 ## 🏗️ Architecture
@@ -31,7 +35,8 @@ src/
 ├── cli.py                      # Main CLI orchestration layer
 ├── audio_recorder.py           # Core audio recording functionality
 ├── transcription_service.py    # Azure OpenAI Whisper integration
-├── config_manager.py           # Configuration management
+├── pronunciation_service.py    # Azure Speech Service pronunciation assessment
+├── config_manager.py           # Configuration management (dual Azure services)
 ├── exceptions.py               # Custom exception hierarchy
 ├── ui/                         # User interface components
 │   ├── __init__.py
@@ -70,6 +75,7 @@ src/
 - A working microphone
 - Audio drivers properly installed
 - Azure OpenAI resource (for transcription features)
+- Azure Speech Service resource (for pronunciation assessment features)
 
 ### Installation
 
@@ -84,28 +90,30 @@ src/
    pip install -r requirements.txt
    ```
 
-3. **Configure Azure OpenAI (for transcription features):**
+3. **Configure Azure Services:**
    ```bash
    # Copy the environment template
    cp .env.example .env
    
-   # Edit the .env file with your Azure OpenAI credentials
+   # Edit the .env file with your Azure credentials
    # nano .env  # or use your preferred editor
    ```
    
-   Fill in your Azure OpenAI settings in the `.env` file:
+   Fill in your Azure service settings in the `.env` file:
    ```env
+   # Azure OpenAI (for transcription)
    AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+   AZURE_OPENAI_API_KEY=your-openai-api-key
    AZURE_OPENAI_DEPLOYMENT_NAME=whisper
-   AZURE_OPENAI_API_VERSION=2024-02-01
+   AZURE_OPENAI_API_VERSION=2024-06-01
+   
+   # Azure Speech Service (for pronunciation assessment)
+   AZURE_SPEECH_API_KEY=your-speech-api-key
+   AZURE_SPEECH_REGION=your-speech-region
+   AZURE_SPEECH_LOCALE=en-US
    ```
 
-4. **Set up Azure authentication:**
-   ```bash
-   az login
-   ```
-
-5. **Run the application:**
+4. **Run the application:**
    ```bash
    python -m src.cli
    ```
@@ -127,6 +135,18 @@ python -m src.cli --quick --output my_recording.wav
 ### Record and Transcribe
 ```bash
 python -m src.cli --transcribe
+```
+
+### Pronunciation Assessment
+```bash
+# Assess pronunciation of an existing audio file
+python -m src.cli --assess-pronunciation recording.wav
+
+# Assess with custom reference text
+python -m src.cli --assess-pronunciation recording.wav --reference-text "Hello world"
+
+# Comprehensive assessment (transcription + pronunciation)
+python -m src.cli --comprehensive recording.wav
 ```
 
 ### Configuration
@@ -154,6 +174,13 @@ For transcription features, configure:
 - **API Version**: Azure OpenAI API version
 - **Language**: Target language or auto-detection
 - **Auto-transcribe**: Enable automatic transcription after recording
+
+### Azure Speech Service Settings
+For pronunciation assessment features, configure:
+- **API Key**: Your Azure Speech service API key
+- **Region**: Your Azure Speech service region (e.g., eastus, westus2)
+- **Locale**: Language locale for pronunciation assessment (e.g., en-US, en-GB)
+- **Assessment Language**: Language for pronunciation evaluation
 
 ### Configuration File
 Settings are stored in `config/audio_config.json` and `.env`:

@@ -44,6 +44,14 @@ class ConfigManager:
             "api_version": "2024-06-01",
             "auto_transcribe": True,
             "language": "auto"
+        },
+        "azure_speech": {
+            "speech_key": "",
+            "speech_region": "",
+            "locale": "en-US",
+            "enable_pronunciation_assessment": True,
+            "assessment_granularity": "Phoneme",
+            "enable_prosody": True
         }
     }
     
@@ -143,6 +151,21 @@ class ConfigManager:
         if language:
             azure_config["language"] = language
         
+        # Load Azure Speech settings from environment variables
+        speech_config = self.config.setdefault("azure_speech", {})
+        
+        speech_key = os.getenv("AZURE_SPEECH_KEY", "").strip()
+        if speech_key:
+            speech_config["speech_key"] = speech_key
+        
+        speech_region = os.getenv("AZURE_SPEECH_REGION", "").strip()
+        if speech_region:
+            speech_config["speech_region"] = speech_region
+        
+        speech_locale = os.getenv("AZURE_SPEECH_LOCALE", "").strip()
+        if speech_locale:
+            speech_config["locale"] = speech_locale
+        
         # Handle boolean environment variable for auto_transcribe
         auto_transcribe = os.getenv("AZURE_OPENAI_AUTO_TRANSCRIBE", "").strip().lower()
         if auto_transcribe in ["true", "1", "yes", "on"]:
@@ -231,6 +254,36 @@ class ConfigManager:
         }
         if language not in valid_languages:
             raise ConfigurationError(f"Invalid language code: {language}. Must be one of: {', '.join(sorted(valid_languages))}")
+        
+        # Validate Azure Speech configuration
+        speech_config = config.get("azure_speech", {})
+        
+        # Validate speech key (can be empty for initial setup)
+        speech_key = speech_config.get("speech_key", "")
+        if speech_key and not isinstance(speech_key, str):
+            raise ConfigurationError("Azure Speech service key must be a string")
+        
+        if speech_key and len(speech_key.strip()) < 10:
+            raise ConfigurationError("Azure Speech service key appears to be too short or invalid")
+        
+        # Validate speech region
+        speech_region = speech_config.get("speech_region", "")
+        if speech_region and not isinstance(speech_region, str):
+            raise ConfigurationError("Azure Speech service region must be a string")
+        
+        # Validate locale
+        locale = speech_config.get("locale", "en-US")
+        if not isinstance(locale, str):
+            raise ConfigurationError("Azure Speech locale must be a string")
+        
+        # Valid Speech service locales
+        valid_speech_locales = {
+            "en-US", "en-GB", "en-AU", "en-CA", "en-IN",
+            "es-ES", "es-MX", "fr-FR", "fr-CA", "de-DE",
+            "it-IT", "pt-BR", "ja-JP", "ko-KR", "zh-CN"
+        }
+        if locale not in valid_speech_locales:
+            raise ConfigurationError(f"Invalid speech locale: {locale}. Must be one of: {', '.join(sorted(valid_speech_locales))}")
     
     def _save_config(self, config: Dict[str, Any]) -> None:
         """
@@ -400,6 +453,19 @@ class ConfigManager:
         
         return bool(endpoint and api_key and deployment)
     
+    def is_speech_configured(self) -> bool:
+        """
+        Check if Azure Speech service is properly configured.
+        
+        Returns:
+            bool: True if Azure Speech service key and region are configured
+        """
+        speech_config = self.config.get("azure_speech", {})
+        speech_key = speech_config.get("speech_key", "").strip()
+        speech_region = speech_config.get("speech_region", "").strip()
+        
+        return bool(speech_key and speech_region)
+    
     def get_transcription_settings(self) -> Dict[str, Any]:
         """
         Get settings for transcription operations.
@@ -450,6 +516,13 @@ Azure OpenAI Settings:
   - Language: {azure['language']}
   - Source: {'Environment Variables (.env)' if self._has_azure_env_vars() else 'Configuration File'}
 
+Azure Speech Service Settings:
+  - Status: {'✅ Configured' if self.is_speech_configured() else '❌ Not configured'}
+  - Region: {self.config['azure_speech'].get('speech_region', 'Not set')}
+  - Locale: {self.config['azure_speech'].get('locale', 'en-US')}
+  - Pronunciation Assessment: {'Yes' if self.config['azure_speech'].get('enable_pronunciation_assessment', True) else 'No'}
+  - Source: {'Environment Variables (.env)' if self._has_speech_env_vars() else 'Configuration File'}
+
 Configuration File: {self.config_file}
 """
         return info
@@ -466,6 +539,17 @@ Configuration File: {self.config_file}
         deployment_env = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "").strip()
         return bool(endpoint_env and api_key_env and deployment_env)
     
+    def _has_speech_env_vars(self) -> bool:
+        """
+        Check if Azure Speech service environment variables are set.
+        
+        Returns:
+            bool: True if speech key and region are set via environment
+        """
+        speech_key_env = os.getenv("AZURE_SPEECH_KEY", "").strip()
+        speech_region_env = os.getenv("AZURE_SPEECH_REGION", "").strip()
+        return bool(speech_key_env and speech_region_env)
+    
     def get_azure_env_status(self) -> str:
         """
         Get detailed status of Azure environment variable configuration.
@@ -480,6 +564,12 @@ Configuration File: {self.config_file}
             "AZURE_OPENAI_API_VERSION": os.getenv("AZURE_OPENAI_API_VERSION", ""),
             "AZURE_OPENAI_LANGUAGE": os.getenv("AZURE_OPENAI_LANGUAGE", ""),
             "AZURE_OPENAI_AUTO_TRANSCRIBE": os.getenv("AZURE_OPENAI_AUTO_TRANSCRIBE", "")
+        }
+        
+        speech_env_vars = {
+            "AZURE_SPEECH_KEY": os.getenv("AZURE_SPEECH_KEY", ""),
+            "AZURE_SPEECH_REGION": os.getenv("AZURE_SPEECH_REGION", ""),
+            "AZURE_SPEECH_LOCALE": os.getenv("AZURE_SPEECH_LOCALE", "")
         }
         
         status_lines = ["Azure OpenAI Environment Variables:"]
@@ -509,3 +599,48 @@ Configuration File: {self.config_file}
         status_lines.append("4. Restart the application")
         
         return "\n".join(status_lines)
+    
+    def get_azure_speech_config(self) -> Dict[str, Any]:
+        """
+        Get Azure Speech service configuration parameters.
+        
+        Returns:
+            Dict[str, Any]: Azure Speech service configuration dictionary
+        """
+        return self.config["azure_speech"].copy()
+    
+    def save_azure_speech_config(self, speech_config: Dict[str, Any]) -> None:
+        """
+        Save Azure Speech service configuration parameters.
+        
+        Args:
+            speech_config: Azure Speech service configuration dictionary
+            
+        Raises:
+            ConfigurationError: If configuration is invalid
+        """
+        # Validate before saving
+        temp_config = self.config.copy()
+        temp_config["azure_speech"] = speech_config
+        self._validate_config(temp_config)
+        
+        # Update and save
+        self.config["azure_speech"] = speech_config
+        self._save_config(self.config)
+    
+    def get_azure_speech_status(self) -> Dict[str, Any]:
+        """
+        Get Azure Speech service configuration status.
+        
+        Returns:
+            Dict[str, Any]: Status information for Azure Speech service
+        """
+        speech_config = self.get_azure_speech_config()
+        
+        return {
+            "configured": bool(speech_config.get("speech_key") and speech_config.get("speech_region")),
+            "api_key_set": bool(speech_config.get("speech_key")),
+            "region_set": bool(speech_config.get("speech_region")),
+            "locale": speech_config.get("locale", "en-US"),
+            "pronunciation_assessment_enabled": speech_config.get("enable_pronunciation_assessment", True)
+        }

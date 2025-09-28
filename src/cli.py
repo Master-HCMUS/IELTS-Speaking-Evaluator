@@ -63,6 +63,26 @@ class AudioRecorderCLI:
             self.workflow_orchestrator.transcribe_file(selected_file)
         self.menu_system.wait_for_enter()
     
+    def _assess_pronunciation_file(self) -> None:
+        """Handle pronunciation assessment of existing files."""
+        selected_file = self.file_manager.select_audio_file(self.menu_system)
+        if selected_file:
+            # Ask for reference text
+            reference_text = self.menu_system.get_user_input(
+                "Enter reference text (or press Enter to use transcription): "
+            )
+            reference_text = reference_text if reference_text.strip() else None
+            
+            self.workflow_orchestrator.assess_pronunciation(selected_file, reference_text)
+        self.menu_system.wait_for_enter()
+    
+    def _comprehensive_assessment_file(self) -> None:
+        """Handle comprehensive assessment (transcription + pronunciation) of existing files."""
+        selected_file = self.file_manager.select_audio_file(self.menu_system)
+        if selected_file:
+            self.workflow_orchestrator.comprehensive_assessment(selected_file)
+        self.menu_system.wait_for_enter()
+    
     def _show_storage_info(self) -> None:
         """Show storage information."""
         self.file_manager.display_storage_info(self.menu_system)
@@ -76,12 +96,14 @@ class AudioRecorderCLI:
             '1': lambda: self.workflow_orchestrator.record_audio(auto_transcribe=False),
             '2': lambda: self.workflow_orchestrator.record_audio(auto_transcribe=True),
             '3': self._transcribe_existing_file,
-            '4': self.workflow_orchestrator.list_audio_devices,
-            '5': self.workflow_orchestrator.select_audio_device,
-            '6': self.config_handlers.configure_audio_settings,
-            '7': self.config_handlers.configure_azure_openai,
-            '8': self.config_handlers.view_current_settings,
-            '9': self.workflow_orchestrator.test_azure_connection,
+            '4': self._assess_pronunciation_file,
+            '5': self._comprehensive_assessment_file,
+            '6': self.workflow_orchestrator.list_audio_devices,
+            '7': self.workflow_orchestrator.select_audio_device,
+            '8': self.config_handlers.configure_audio_settings,
+            '9': self.config_handlers.configure_azure_openai,
+            '10': self.config_handlers.view_current_settings,
+            '11': self.workflow_orchestrator.test_azure_connection,
             's': self._show_storage_info,  # Hidden storage info option
             'h': self.menu_system.display_help,
             'help': self.menu_system.display_help,
@@ -98,11 +120,14 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m src.cli                    # Start interactive mode
-  python -m src.cli --quick            # Quick record mode
-  python -m src.cli --devices          # List audio devices
-  python -m src.cli --config           # Configure settings
-  python -m src.cli --azure-config     # Configure Azure OpenAI
+  python -m src.cli                              # Start interactive mode
+  python -m src.cli --quick                      # Quick record mode
+  python -m src.cli --transcribe                 # Quick record and transcribe
+  python -m src.cli --assess-pronunciation file.wav  # Assess pronunciation of audio file
+  python -m src.cli --comprehensive file.wav     # Full assessment (transcription + pronunciation)
+  python -m src.cli --devices                    # List audio devices
+  python -m src.cli --config                     # Configure settings
+  python -m src.cli --azure-config               # Configure Azure OpenAI
         """
     )
     
@@ -143,6 +168,26 @@ Examples:
     )
     
     parser.add_argument(
+        '--assess-pronunciation', '-p',
+        type=str,
+        metavar='AUDIO_FILE',
+        help='Assess pronunciation of an audio file'
+    )
+    
+    parser.add_argument(
+        '--comprehensive', '-comp',
+        type=str,
+        metavar='AUDIO_FILE',
+        help='Perform comprehensive assessment (transcription + pronunciation) of an audio file'
+    )
+    
+    parser.add_argument(
+        '--reference-text', '-r',
+        type=str,
+        help='Reference text for pronunciation assessment (if not provided, will use transcription)'
+    )
+    
+    parser.add_argument(
         '--output', '-o',
         type=str,
         help='Output filename for recording (WAV format)'
@@ -174,6 +219,25 @@ def main():
         elif args.test_azure:
             # Test Azure connection and exit
             cli.workflow_orchestrator.test_azure_connection()
+            
+        elif args.assess_pronunciation:
+            # Assess pronunciation of audio file
+            audio_file = Path(args.assess_pronunciation)
+            if not audio_file.exists():
+                cli.menu_system.display_error(f"Audio file not found: {audio_file}")
+                sys.exit(1)
+            
+            reference_text = args.reference_text if args.reference_text else None
+            cli.workflow_orchestrator.assess_pronunciation(audio_file, reference_text)
+            
+        elif args.comprehensive:
+            # Comprehensive assessment (transcription + pronunciation)
+            audio_file = Path(args.comprehensive)
+            if not audio_file.exists():
+                cli.menu_system.display_error(f"Audio file not found: {audio_file}")
+                sys.exit(1)
+            
+            cli.workflow_orchestrator.comprehensive_assessment(audio_file)
             
         elif args.quick or args.transcribe:
             # Quick recording mode (with optional transcription)

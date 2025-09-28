@@ -15,6 +15,9 @@ requests>=2.31.0            # HTTP library for API calls
 # Environment Configuration
 python-dotenv>=1.0.0        # Load environment variables from .env file
 
+# Azure Speech Services
+azure-cognitiveservices-speech>=1.33.0  # Azure Speech SDK for pronunciation assessment
+
 # Optional Dependencies for Enhanced Features
 # Uncomment if you need additional audio processing capabilities
 # librosa>=0.10.0           # Audio analysis library

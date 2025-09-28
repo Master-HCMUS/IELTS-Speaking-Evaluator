@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any
 
 from ..audio_recorder import AudioRecorder
 from ..transcription_service import AzureOpenAITranscriptionService
+from ..pronunciation_service import AzureSpeechPronunciationService
 from ..config_manager import ConfigManager
 from ..ui.menu_system import MenuSystem
 from ..ui.display_helpers import DisplayHelpers
@@ -44,6 +45,7 @@ class WorkflowOrchestrator:
         self.menu_system = menu_system
         self.recorder: Optional[AudioRecorder] = None
         self.transcription_service: Optional[AzureOpenAITranscriptionService] = None
+        self.pronunciation_service: Optional[AzureSpeechPronunciationService] = None
     
     def initialize_recorder(self) -> bool:
         """
@@ -99,6 +101,35 @@ class WorkflowOrchestrator:
             return False
         except Exception as e:
             self.menu_system.display_error(f"Failed to initialize transcription service: {e}")
+            return False
+    
+    def initialize_pronunciation_service(self) -> bool:
+        """
+        Initialize the Azure Speech pronunciation service.
+        
+        Returns:
+            bool: True if initialization successful, False otherwise
+        """
+        try:
+            azure_speech_config = self.config_manager.get_azure_speech_config()
+            
+            if not azure_speech_config.get('speech_key'):
+                self.menu_system.display_error("Azure Speech API key not configured. Please add your API key to the .env file.")
+                return False
+            
+            if not azure_speech_config.get('speech_region'):
+                self.menu_system.display_error("Azure Speech region not configured. Please configure Azure Speech settings first.")
+                return False
+            
+            self.pronunciation_service = AzureSpeechPronunciationService(
+                speech_key=azure_speech_config['speech_key'],
+                speech_region=azure_speech_config['speech_region'],
+                locale=azure_speech_config.get('locale', 'en-US')
+            )
+            return True
+            
+        except Exception as e:
+            self.menu_system.display_error(f"Failed to initialize pronunciation service: {e}")
             return False
     
     def record_audio(self, auto_transcribe: bool = False) -> None:
@@ -251,6 +282,150 @@ class WorkflowOrchestrator:
         except Exception as e:
             self.menu_system.display_error(f"Error saving transcription: {e}")
     
+    def assess_pronunciation(self, audio_file_path: Path, reference_text: str = None) -> None:
+        """
+        Assess pronunciation of an audio file.
+        
+        Args:
+            audio_file_path: Path to the audio file
+            reference_text: Reference text for pronunciation assessment
+        """
+        if not self.pronunciation_service and not self.initialize_pronunciation_service():
+            return
+        
+        try:
+            # If no reference text provided, try to get transcription first
+            if not reference_text:
+                if not self.transcription_service and not self.initialize_transcription_service():
+                    self.menu_system.display_error("Need reference text for pronunciation assessment. Please transcribe the audio first.")
+                    return
+                
+                self.menu_system.display_info("Getting transcription for pronunciation reference...")
+                transcription_result = self.transcription_service.transcribe_audio_file(audio_file_path)
+                reference_text = transcription_result.get('text', '').strip()
+                
+                if not reference_text:
+                    self.menu_system.display_error("Could not get transcription for pronunciation assessment.")
+                    return
+            
+            self.menu_system.display_info("Assessing pronunciation...")
+            self.menu_system.display_info(f"Reference text: {reference_text}")
+            
+            # Perform pronunciation assessment
+            result = self.pronunciation_service.assess_pronunciation_from_file(audio_file_path, reference_text)
+            
+            if result and 'overall_scores' in result:
+                self._display_pronunciation_results(result)
+                self._save_pronunciation_results(audio_file_path, result)
+            else:
+                self.menu_system.display_error("Pronunciation assessment failed or returned no results.")
+                
+        except Exception as e:
+            self.menu_system.display_error(f"Pronunciation assessment error: {e}")
+    
+    def _display_pronunciation_results(self, result: Dict[str, Any]) -> None:
+        """Display pronunciation assessment results."""
+        self.menu_system.display_section_header("Pronunciation Assessment Results")
+        
+        # Overall scores
+        overall_scores = result.get('overall_scores', {})
+        accuracy = overall_scores.get('accuracy_score', 0)
+        fluency = overall_scores.get('fluency_score', 0)
+        completeness = overall_scores.get('completeness_score', 0)
+        pronunciation_score = overall_scores.get('pronunciation_score', 0)
+        
+        self.menu_system.display_info(f"Overall Pronunciation Score: {pronunciation_score:.1f}/100")
+        self.menu_system.display_info(f"Accuracy Score: {accuracy:.1f}/100")
+        self.menu_system.display_info(f"Fluency Score: {fluency:.1f}/100")
+        self.menu_system.display_info(f"Completeness Score: {completeness:.1f}/100")
+        
+        # Show recognized text vs reference
+        recognized_text = result.get('recognized_text', '')
+        reference_text = result.get('reference_text', '')
+        if recognized_text and reference_text:
+            self.menu_system.display_section_header("Text Comparison")
+            self.menu_system.display_info(f"Reference:  {reference_text}")
+            self.menu_system.display_info(f"Recognized: {recognized_text}")
+        
+        # Word-level details
+        word_scores = result.get('word_level_scores', [])
+        if word_scores:
+            self.menu_system.display_section_header("Word-level Analysis")
+            for word_info in word_scores:
+                word = word_info.get('word', 'Unknown')
+                word_accuracy = word_info.get('accuracy_score', 0)
+                error_type = word_info.get('error_type', 'None')
+                
+                status = "✓" if error_type == "None" else "✗"
+                self.menu_system.display_info(f"{status} {word}: {word_accuracy:.1f} ({error_type})")
+        
+        # Feedback
+        feedback = result.get('detailed_feedback', [])
+        if feedback:
+            self.menu_system.display_section_header("Feedback")
+            for item in feedback:
+                self.menu_system.display_info(f"• {item}")
+    
+    def _save_pronunciation_results(self, audio_file_path: Path, result: Dict[str, Any]) -> None:
+        """Save pronunciation assessment results."""
+        try:
+            # Create pronunciation results filename
+            audio_stem = audio_file_path.stem
+            results_filename = f"{audio_stem}_pronunciation.txt"
+            results_path = Path("transcriptions") / results_filename
+            
+            # Ensure transcriptions directory exists
+            results_path.parent.mkdir(exist_ok=True)
+            
+            # Format results for saving
+            overall_scores = result.get('overall_scores', {})
+            content = f"Pronunciation Assessment Results\n"
+            content += f"{'=' * 40}\n\n"
+            content += f"Audio File: {audio_file_path.name}\n"
+            content += f"Processing Time: {result.get('processing_time', 0):.2f} seconds\n"
+            content += f"Recognition Status: {result.get('recognition_status', 'Unknown')}\n\n"
+            
+            # Text comparison
+            reference_text = result.get('reference_text', '')
+            recognized_text = result.get('recognized_text', '')
+            if reference_text or recognized_text:
+                content += f"Text Comparison:\n"
+                content += f"- Reference:  {reference_text}\n"
+                content += f"- Recognized: {recognized_text}\n\n"
+            
+            content += f"Overall Scores:\n"
+            content += f"- Pronunciation Score: {overall_scores.get('pronunciation_score', 0):.1f}/100\n"
+            content += f"- Accuracy Score: {overall_scores.get('accuracy_score', 0):.1f}/100\n"
+            content += f"- Fluency Score: {overall_scores.get('fluency_score', 0):.1f}/100\n"
+            content += f"- Completeness Score: {overall_scores.get('completeness_score', 0):.1f}/100\n\n"
+            
+            # Word-level details
+            word_scores = result.get('word_level_scores', [])
+            if word_scores:
+                content += f"Word-level Analysis:\n"
+                for word_info in word_scores:
+                    word = word_info.get('word', 'Unknown')
+                    word_accuracy = word_info.get('accuracy_score', 0)
+                    error_type = word_info.get('error_type', 'None')
+                    content += f"- {word:12}: {word_accuracy:5.1f} ({error_type})\n"
+                content += "\n"
+            
+            # Feedback
+            feedback = result.get('detailed_feedback', [])
+            if feedback:
+                content += f"Feedback:\n"
+                for item in feedback:
+                    content += f"- {item}\n"
+            
+            # Save to file
+            with open(results_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            self.menu_system.display_success(f"Pronunciation results saved: {results_path}")
+            
+        except Exception as e:
+            self.menu_system.display_error(f"Error saving pronunciation results: {e}")
+    
     def list_audio_devices(self) -> None:
         """List available audio input devices."""
         if not self.recorder and not self.initialize_recorder():
@@ -289,6 +464,58 @@ class WorkflowOrchestrator:
                 self.menu_system.display_error("Device selection failed!")
         else:
             self.menu_system.display_info("Device selection cancelled.")
+        
+        self.menu_system.wait_for_enter()
+    
+    def comprehensive_assessment(self, audio_file_path: Path) -> None:
+        """
+        Perform comprehensive assessment including transcription and pronunciation.
+        
+        Args:
+            audio_file_path: Path to the audio file
+        """
+        self.menu_system.display_section_header("Comprehensive Speech Assessment")
+        self.menu_system.display_info(f"Analyzing: {audio_file_path.name}")
+        
+        try:
+            # Step 1: Transcription
+            if not self.transcription_service and not self.initialize_transcription_service():
+                return
+            
+            self.menu_system.display_info("Step 1: Getting transcription...")
+            transcription_result = self.transcription_service.transcribe_audio_file(audio_file_path)
+            
+            if not transcription_result or not transcription_result.get('text'):
+                self.menu_system.display_error("Transcription failed. Cannot proceed with pronunciation assessment.")
+                return
+            
+            transcribed_text = transcription_result['text'].strip()
+            self.menu_system.display_success("Transcription completed!")
+            self.menu_system.display_info(f"Transcribed text: {transcribed_text}")
+            
+            # Save transcription
+            self._save_transcription_results(audio_file_path, transcription_result)
+            
+            # Step 2: Pronunciation Assessment
+            if not self.pronunciation_service and not self.initialize_pronunciation_service():
+                self.menu_system.display_warning("Pronunciation service not available. Transcription completed only.")
+                return
+            
+            self.menu_system.display_info("Step 2: Assessing pronunciation...")
+            pronunciation_result = self.pronunciation_service.assess_pronunciation_from_file(audio_file_path, transcribed_text)
+            
+            if pronunciation_result and 'overall_scores' in pronunciation_result:
+                self.menu_system.display_success("Pronunciation assessment completed!")
+                self._display_pronunciation_results(pronunciation_result)
+                self._save_pronunciation_results(audio_file_path, pronunciation_result)
+            else:
+                self.menu_system.display_warning("Pronunciation assessment failed, but transcription was successful.")
+            
+            self.menu_system.display_section_header("Assessment Complete")
+            self.menu_system.display_success("Comprehensive assessment finished!")
+            
+        except Exception as e:
+            self.menu_system.display_error(f"Comprehensive assessment error: {e}")
         
         self.menu_system.wait_for_enter()
     
