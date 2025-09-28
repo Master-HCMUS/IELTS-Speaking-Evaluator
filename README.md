@@ -21,6 +21,9 @@ A professional, modular Python application for recording high-quality audio from
 - **Multiple Assessment Modes**: Transcription-only, pronunciation-only, or comprehensive analysis
 - **Word-Level Analysis**: Detailed feedback on individual word pronunciation
 - **Multiple Scoring Metrics**: Accuracy, fluency, completeness, and overall pronunciation scores
+- **Dataset Evaluation**: Comprehensive evaluation against SpeechOcean762 benchmark dataset
+- **Statistical Analysis**: Correlation analysis with expert human annotations
+- **Performance Metrics**: MAE, RMSE, and correlation coefficients for system validation
 - **File Management**: Organized storage of recordings, transcriptions, and assessment results
 - **Secure Authentication**: API key-based authentication via .env configuration
 - **Comprehensive Reporting**: Detailed assessment results with actionable feedback
@@ -38,6 +41,10 @@ src/
 ├── pronunciation_service.py    # Azure Speech Service pronunciation assessment
 ├── config_manager.py           # Configuration management (dual Azure services)
 ├── exceptions.py               # Custom exception hierarchy
+├── evaluation/                 # Dataset evaluation and benchmarking
+│   ├── __init__.py
+│   ├── dataset_evaluator.py   # SpeechOcean762 evaluation framework
+│   └── evaluate_dataset.py    # CLI interface for evaluation
 ├── ui/                         # User interface components
 │   ├── __init__.py
 │   ├── menu_system.py         # Menu display and user interactions
@@ -147,6 +154,18 @@ python -m src.cli --assess-pronunciation recording.wav --reference-text "Hello w
 
 # Comprehensive assessment (transcription + pronunciation)
 python -m src.cli --comprehensive recording.wav
+```
+
+### Dataset Evaluation
+```bash
+# Evaluate against SpeechOcean762 dataset
+python -m src.cli --evaluate-dataset
+
+# Evaluate with limited samples
+python -m src.cli --evaluate-dataset --max-samples 100
+
+# Run evaluation test
+python test_evaluation.py
 ```
 
 ### Configuration
@@ -346,7 +365,59 @@ python -m src.cli --azure-config
 - **.env file missing**: Copy `.env.example` to `.env` and configure your Azure settings
 - **Environment variables ignored**: Check for typos in variable names and restart the app
 
-## 📄 License
+## � Dataset Evaluation
+
+### Overview
+The application includes a comprehensive evaluation system that validates the pronunciation assessment accuracy against the **SpeechOcean762 dataset**, a benchmark dataset with expert human annotations for pronunciation assessment.
+
+### Features
+- **Automatic Dataset Loading**: Downloads SpeechOcean762 from HuggingFace Datasets
+- **Statistical Analysis**: Calculates correlation coefficients with expert annotations
+- **Performance Metrics**: Mean Absolute Error (MAE) and Root Mean Square Error (RMSE)
+- **Comprehensive Reporting**: Detailed evaluation results with statistical significance
+- **Result Persistence**: Saves evaluation results to CSV and JSON formats
+
+### Evaluation Metrics
+The system compares Azure Speech assessment scores with expert human annotations across:
+- **Overall Pronunciation Score**: Global pronunciation quality assessment
+- **Accuracy Score**: Word pronunciation accuracy
+- **Fluency Score**: Speech fluency and timing
+- **Completeness Score**: Content completeness evaluation
+
+### Usage
+```bash
+# Run full evaluation (may take 15-30 minutes)
+python -m src.cli --evaluate-dataset
+
+# Evaluate subset for quick testing
+python -m src.cli --evaluate-dataset --max-samples 50
+
+# Interactive evaluation via menu
+python -m src.cli
+# Then select option 6: "Evaluate Against SpeechOcean762 Dataset"
+
+# Test evaluation system setup
+python test_evaluation.py
+```
+
+### Output
+Evaluation results are saved to `evaluation_results/` directory:
+- `evaluation_results_YYYYMMDD_HHMMSS.csv`: Detailed per-sample results
+- `evaluation_summary_YYYYMMDD_HHMMSS.json`: Statistical summary and metrics
+- Console output with real-time progress and final correlation analysis
+
+### Prerequisites
+Install additional dependencies for evaluation:
+```bash
+pip install datasets pandas matplotlib
+```
+
+Or install all requirements:
+```bash
+pip install -r requirements.txt
+```
+
+## �📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 

@@ -83,6 +83,63 @@ class AudioRecorderCLI:
             self.workflow_orchestrator.comprehensive_assessment(selected_file)
         self.menu_system.wait_for_enter()
     
+    def _run_dataset_evaluation(self) -> None:
+        """Run evaluation against SpeechOcean762 dataset."""
+        self.menu_system.display_section_header("SpeechOcean762 Dataset Evaluation")
+        
+        try:
+            from .evaluation.dataset_evaluator import SpeechOcean762Evaluator
+            
+            # Check if datasets library is available
+            try:
+                import datasets
+            except ImportError:
+                self.menu_system.display_error("HuggingFace datasets library not installed.")
+                self.menu_system.display_info("Install with: pip install datasets")
+                return
+            
+            # Check Azure Speech configuration
+            if not self.config_manager.is_speech_configured():
+                self.menu_system.display_error("Azure Speech service not configured.")
+                self.menu_system.display_info("Please configure Azure Speech settings first.")
+                return
+            
+            # Get evaluation parameters
+            max_samples = self.menu_system.get_numeric_choice(
+                "Number of samples to evaluate (Enter for all, or specify number): ",
+                min_val=1,
+                max_val=10000
+            )
+            
+            # Initialize evaluator
+            evaluator = SpeechOcean762Evaluator(self.config_manager)
+            
+            # Load dataset
+            self.menu_system.display_info("Loading SpeechOcean762 dataset...")
+            if not evaluator.load_dataset(split="test", max_samples=max_samples):
+                self.menu_system.display_error("Failed to load dataset")
+                return
+            
+            # Confirm evaluation
+            total_samples = len(evaluator.dataset)
+            if not self.menu_system.get_yes_no_choice(
+                f"Run evaluation on {total_samples} samples? This may take a while."
+            ):
+                return
+            
+            # Run evaluation
+            self.menu_system.display_info("Running evaluation... This may take several minutes.")
+            metrics = evaluator.run_evaluation(max_samples=max_samples, save_results=True)
+            
+            # Show results
+            evaluator.print_evaluation_summary(metrics)
+            self.menu_system.display_success("Evaluation completed! Results saved to 'evaluation_results/' directory.")
+            
+        except ImportError as e:
+            self.menu_system.display_error(f"Evaluation module not available: {e}")
+        except Exception as e:
+            self.menu_system.display_error(f"Evaluation failed: {e}")
+    
     def _show_storage_info(self) -> None:
         """Show storage information."""
         self.file_manager.display_storage_info(self.menu_system)
@@ -98,12 +155,13 @@ class AudioRecorderCLI:
             '3': self._transcribe_existing_file,
             '4': self._assess_pronunciation_file,
             '5': self._comprehensive_assessment_file,
-            '6': self.workflow_orchestrator.list_audio_devices,
-            '7': self.workflow_orchestrator.select_audio_device,
-            '8': self.config_handlers.configure_audio_settings,
-            '9': self.config_handlers.configure_azure_openai,
-            '10': self.config_handlers.view_current_settings,
-            '11': self.workflow_orchestrator.test_azure_connection,
+            '6': self._run_dataset_evaluation,
+            '7': self.workflow_orchestrator.list_audio_devices,
+            '8': self.workflow_orchestrator.select_audio_device,
+            '9': self.config_handlers.configure_audio_settings,
+            '10': self.config_handlers.configure_azure_openai,
+            '11': self.config_handlers.view_current_settings,
+            '12': self.workflow_orchestrator.test_azure_connection,
             's': self._show_storage_info,  # Hidden storage info option
             'h': self.menu_system.display_help,
             'help': self.menu_system.display_help,
@@ -125,6 +183,8 @@ Examples:
   python -m src.cli --transcribe                 # Quick record and transcribe
   python -m src.cli --assess-pronunciation file.wav  # Assess pronunciation of audio file
   python -m src.cli --comprehensive file.wav     # Full assessment (transcription + pronunciation)
+  python -m src.cli --evaluate-dataset           # Evaluate against SpeechOcean762 dataset
+  python -m src.cli --evaluate-dataset --max-samples 100  # Evaluate on 100 samples
   python -m src.cli --devices                    # List audio devices
   python -m src.cli --config                     # Configure settings
   python -m src.cli --azure-config               # Configure Azure OpenAI
@@ -188,6 +248,19 @@ Examples:
     )
     
     parser.add_argument(
+        '--evaluate-dataset', '-eval',
+        action='store_true',
+        help='Evaluate pronunciation assessment against SpeechOcean762 dataset'
+    )
+    
+    parser.add_argument(
+        '--max-samples',
+        type=int,
+        default=None,
+        help='Maximum number of samples to evaluate (for --evaluate-dataset)'
+    )
+    
+    parser.add_argument(
         '--output', '-o',
         type=str,
         help='Output filename for recording (WAV format)'
@@ -238,6 +311,50 @@ def main():
                 sys.exit(1)
             
             cli.workflow_orchestrator.comprehensive_assessment(audio_file)
+            
+        elif args.evaluate_dataset:
+            # Evaluate pronunciation assessment against SpeechOcean762 dataset
+            try:
+                from .evaluation.dataset_evaluator import SpeechOcean762Evaluator
+                
+                # Check if datasets library is available
+                try:
+                    import datasets
+                except ImportError:
+                    cli.menu_system.display_error("HuggingFace datasets library not installed.")
+                    cli.menu_system.display_info("Install with: pip install datasets pandas matplotlib")
+                    sys.exit(1)
+                
+                # Check Azure Speech configuration
+                if not cli.config_manager.is_speech_configured():
+                    cli.menu_system.display_error("Azure Speech service not configured.")
+                    cli.menu_system.display_info("Please configure Azure Speech settings first.")
+                    sys.exit(1)
+                
+                # Initialize evaluator
+                evaluator = SpeechOcean762Evaluator(cli.config_manager)
+                
+                # Load dataset
+                cli.menu_system.display_info("Loading SpeechOcean762 dataset...")
+                if not evaluator.load_dataset(split="test", max_samples=args.max_samples):
+                    cli.menu_system.display_error("Failed to load dataset")
+                    sys.exit(1)
+                
+                # Run evaluation
+                total_samples = len(evaluator.dataset)
+                cli.menu_system.display_info(f"Running evaluation on {total_samples} samples...")
+                metrics = evaluator.run_evaluation(max_samples=args.max_samples, save_results=True)
+                
+                # Show results
+                evaluator.print_evaluation_summary(metrics)
+                cli.menu_system.display_success("Evaluation completed! Results saved to 'evaluation_results/' directory.")
+                
+            except ImportError as e:
+                cli.menu_system.display_error(f"Evaluation module not available: {e}")
+                sys.exit(1)
+            except Exception as e:
+                cli.menu_system.display_error(f"Evaluation failed: {e}")
+                sys.exit(1)
             
         elif args.quick or args.transcribe:
             # Quick recording mode (with optional transcription)
