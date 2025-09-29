@@ -23,10 +23,21 @@ datasets>=2.14.0            # HuggingFace datasets library for SpeechOcean762
 pandas>=2.0.0               # Data manipulation library for evaluation results
 matplotlib>=3.7.0           # Plotting library for evaluation visualization
 
+# Fine-tuning Dependencies
+torch>=1.13.0               # PyTorch for model training
+transformers>=4.25.0        # HuggingFace transformers library for Whisper
+accelerate>=0.15.0          # Training acceleration library
+evaluate>=0.4.0             # Evaluation metrics library
+jiwer>=2.5.0                # Word Error Rate calculation
+sacrebleu>=2.3.0            # BLEU score calculation
+librosa>=0.9.0              # Audio processing library
+soundfile>=0.11.0           # Audio file I/O
+tensorboard>=2.11.0         # Training monitoring and visualization
+
 # Optional Dependencies for Enhanced Features
 # Uncomment if you need additional audio processing capabilities
-# librosa>=0.10.0           # Audio analysis library
 # pydub>=0.25.1             # Audio manipulation library
+# wandb>=0.13.0             # Experiment tracking (optional)
 
 # Development Dependencies (optional, for testing and development)
 # pytest>=7.0.0             # Testing framework
