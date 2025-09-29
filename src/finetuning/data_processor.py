@@ -124,7 +124,7 @@ class SpeechOcean762DataProcessor:
             # Limit samples if specified
             if max_samples_per_split and split in max_samples_per_split:
                 max_samples = max_samples_per_split[split]
-                if len(dataset) > max_samples:
+                if max_samples is not None and len(dataset) > max_samples:
                     dataset = dataset.select(range(max_samples))
                     logger.info(f"Limited {split} split to {max_samples} samples")
             
