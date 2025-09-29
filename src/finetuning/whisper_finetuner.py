@@ -282,7 +282,7 @@ class WhisperFineTuner:
             warmup_steps=self.config.warmup_steps,
             max_grad_norm=self.config.max_grad_norm,
             num_train_epochs=self.config.num_epochs,
-            evaluation_strategy="steps",
+            eval_strategy="steps",
             eval_steps=self.config.eval_steps,
             save_steps=self.config.save_steps,
             logging_steps=self.config.logging_steps,
