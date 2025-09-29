@@ -153,6 +153,13 @@ Thumbs.db
 recordings/*
 !recordings/.gitkeep
 
+# Fine-tuning model outputs
+src/finetuning/models/
+src/finetuning/whisper_*/
+*.safetensors
+*.bin
+runs/
+
 # Temporary files
 *.tmp
 *.temp
