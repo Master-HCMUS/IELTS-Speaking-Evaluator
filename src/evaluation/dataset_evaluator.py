@@ -29,8 +29,19 @@ try:
 except ImportError:
     DATASETS_AVAILABLE = False
 
-from ..pronunciation_service import AzureSpeechPronunciationService
-from ..config_manager import ConfigManager
+# Handle both relative and absolute imports
+try:
+    from ..pronunciation_service import AzureSpeechPronunciationService
+    from ..config_manager import ConfigManager
+except ImportError:
+    # Fallback for standalone execution
+    import sys
+    from pathlib import Path
+    parent_dir = Path(__file__).parent.parent
+    sys.path.insert(0, str(parent_dir))
+    
+    from pronunciation_service import AzureSpeechPronunciationService
+    from config_manager import ConfigManager
 
 
 def convert_numpy_types(obj):

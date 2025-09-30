@@ -1,0 +1,358 @@
+{
+  "evaluation_info": {
+    "timestamp": "20250930_191124",
+    "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+    "model_name": "whisper_development",
+    "dataset": "speechocean762",
+    "evaluation_type": "standalone_whisper_pronunciation_assessment",
+    "total_samples": 10,
+    "successful_assessments": 10,
+    "failed_assessments": 0
+  },
+  "metrics": {
+    "correlations": {
+      "accuracy": -0.30059078471817796,
+      "fluency": -0.42062432427408314,
+      "completeness": 0.0,
+      "prosodic": 0.43575991788323787
+    },
+    "mae": {
+      "accuracy": 2.0018837535014007,
+      "fluency": 5.8713133335113525,
+      "completeness": 0.4466666666666663,
+      "prosodic": 1.6162650705318833
+    },
+    "rmse": {
+      "accuracy": 2.342101456189418,
+      "fluency": 5.889763235603955,
+      "completeness": 0.6347352904076535,
+      "prosodic": 1.8573561260709428
+    }
+  },
+  "score_statistics": {
+    "expert": {
+      "accuracy": {
+        "mean": 8.2,
+        "std": 0.7483314773547883,
+        "min": 7.0,
+        "max": 9.0
+      },
+      "fluency": {
+        "mean": 9.1,
+        "std": 0.3,
+        "min": 9.0,
+        "max": 10.0
+      },
+      "completeness": {
+        "mean": 10.0,
+        "std": 0.0,
+        "min": 10.0,
+        "max": 10.0
+      },
+      "prosodic": {
+        "mean": 8.7,
+        "std": 0.45825756949558394,
+        "min": 8.0,
+        "max": 9.0
+      }
+    },
+    "whisper": {
+      "accuracy": {
+        "mean": 8.008116246498599,
+        "std": 1.9974937298436306,
+        "min": 4.450980392156863,
+        "max": 10.0
+      },
+      "fluency": {
+        "mean": 3.2286866664886475,
+        "std": 0.2518523106944662,
+        "min": 2.890981912612915,
+        "max": 3.556079387664795
+      },
+      "completeness": {
+        "mean": 9.553333333333335,
+        "std": 0.4509742540076734,
+        "min": 8.666666666666668,
+        "max": 10.0
+      },
+      "prosodic": {
+        "mean": 7.096196372415504,
+        "std": 1.0407978313284072,
+        "min": 5.299673355560676,
+        "max": 8.251222348213195
+      }
+    }
+  },
+  "individual_results": [
+    {
+      "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+      "sample_idx": 0,
+      "text": "MARK IS GOING TO SEE ELEPHANT",
+      "speaker": "0003",
+      "success": true,
+      "predicted_text": "MOTHER IS GOING TO SEE ELEPHANT",
+      "reference_text": "MARK IS GOING TO SEE ELEPHANT",
+      "confidence_score": 0.8048699498176575,
+      "transcription_quality": 0.6708333333333333,
+      "pronunciation_scores": {
+        "accuracy": 8.208333333333332,
+        "fluency": 3.2194797992706303,
+        "completeness": 9.666666666666668,
+        "prosodic": 7.110443182786304
+      },
+      "expert_scores": {
+        "accuracy": 9,
+        "fluency": 9,
+        "completeness": 10.0,
+        "prosodic": 9
+      },
+      "error": "",
+      "word_error_rate": 0.16666666666666666,
+      "character_error_rate": 0.20833333333333334,
+      "bleu_score": 0.0
+    },
+    {
+      "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+      "sample_idx": 1,
+      "text": "KATE LOVES CHINA",
+      "speaker": "0003",
+      "success": true,
+      "predicted_text": "KATE LOVES CHINA",
+      "reference_text": "KATE LOVES CHINA",
+      "confidence_score": 0.8408937454223633,
+      "transcription_quality": 0.7999999999999999,
+      "pronunciation_scores": {
+        "accuracy": 10,
+        "fluency": 3.363574981689453,
+        "completeness": 10,
+        "prosodic": 8.122681236267088
+      },
+      "expert_scores": {
+        "accuracy": 7,
+        "fluency": 9,
+        "completeness": 10.0,
+        "prosodic": 9
+      },
+      "error": "",
+      "word_error_rate": 0.0,
+      "character_error_rate": 0.0,
+      "bleu_score": 0.0
+    },
+    {
+      "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+      "sample_idx": 2,
+      "text": "TWO SIX FOUR EIGHT",
+      "speaker": "0003",
+      "success": true,
+      "predicted_text": "TOO SIX FOUR EIGHT",
+      "reference_text": "TWO SIX FOUR EIGHT",
+      "confidence_score": 0.8782655000686646,
+      "transcription_quality": 0.68,
+      "pronunciation_scores": {
+        "accuracy": 8.049999999999999,
+        "fluency": 3.513062000274658,
+        "completeness": 9.5,
+        "prosodic": 7.394796500205993
+      },
+      "expert_scores": {
+        "accuracy": 9,
+        "fluency": 9,
+        "completeness": 10.0,
+        "prosodic": 9
+      },
+      "error": "",
+      "word_error_rate": 0.25,
+      "character_error_rate": 0.06666666666666667,
+      "bleu_score": 0.0
+    },
+    {
+      "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+      "sample_idx": 3,
+      "text": "SEVEN THREE FOUR TWO",
+      "speaker": "0003",
+      "success": true,
+      "predicted_text": "SEVEN THREE FOUR TWO",
+      "reference_text": "SEVEN THREE FOUR TWO",
+      "confidence_score": 0.8207690715789795,
+      "transcription_quality": 0.7999999999999999,
+      "pronunciation_scores": {
+        "accuracy": 10,
+        "fluency": 3.283076286315918,
+        "completeness": 10,
+        "prosodic": 8.062307214736938
+      },
+      "expert_scores": {
+        "accuracy": 8,
+        "fluency": 9,
+        "completeness": 10.0,
+        "prosodic": 8
+      },
+      "error": "",
+      "word_error_rate": 0.0,
+      "character_error_rate": 0.0,
+      "bleu_score": 0.0
+    },
+    {
+      "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+      "sample_idx": 4,
+      "text": "TWO EIGHT NINE ONE",
+      "speaker": "0003",
+      "success": true,
+      "predicted_text": "TWO EIGHT NINE ONE",
+      "reference_text": "TWO EIGHT NINE ONE",
+      "confidence_score": 0.8837407827377319,
+      "transcription_quality": 0.7999999999999999,
+      "pronunciation_scores": {
+        "accuracy": 10,
+        "fluency": 3.5349631309509277,
+        "completeness": 10,
+        "prosodic": 8.251222348213195
+      },
+      "expert_scores": {
+        "accuracy": 9,
+        "fluency": 9,
+        "completeness": 10.0,
+        "prosodic": 9
+      },
+      "error": "",
+      "word_error_rate": 0.0,
+      "character_error_rate": 0.0,
+      "bleu_score": 0.0
+    },
+    {
+      "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+      "sample_idx": 5,
+      "text": "ONE ZERO ONE ZERO",
+      "speaker": "0003",
+      "success": true,
+      "predicted_text": "ONE ZERO ONE ZERO",
+      "reference_text": "ONE ZERO ONE ZERO",
+      "confidence_score": 0.7277202606201172,
+      "transcription_quality": 0.7999999999999999,
+      "pronunciation_scores": {
+        "accuracy": 10,
+        "fluency": 2.9108810424804688,
+        "completeness": 10,
+        "prosodic": 7.783160781860351
+      },
+      "expert_scores": {
+        "accuracy": 7,
+        "fluency": 10,
+        "completeness": 10.0,
+        "prosodic": 9
+      },
+      "error": "",
+      "word_error_rate": 0.0,
+      "character_error_rate": 0.0,
+      "bleu_score": 0.0
+    },
+    {
+      "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+      "sample_idx": 6,
+      "text": "TWO FIVE NINE NINE",
+      "speaker": "0003",
+      "success": true,
+      "predicted_text": "TOO FIVE NINE NINE",
+      "reference_text": "TWO FIVE NINE NINE",
+      "confidence_score": 0.8890198469161987,
+      "transcription_quality": 0.68,
+      "pronunciation_scores": {
+        "accuracy": 8.049999999999999,
+        "fluency": 3.556079387664795,
+        "completeness": 9.5,
+        "prosodic": 7.427059540748595
+      },
+      "expert_scores": {
+        "accuracy": 8,
+        "fluency": 9,
+        "completeness": 10.0,
+        "prosodic": 9
+      },
+      "error": "",
+      "word_error_rate": 0.25,
+      "character_error_rate": 0.06666666666666667,
+      "bleu_score": 0.0
+    },
+    {
+      "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+      "sample_idx": 7,
+      "text": "TOMATO SPRING PHOTO",
+      "speaker": "0003",
+      "success": true,
+      "predicted_text": "TOMATRA SPRING FOTOR",
+      "reference_text": "TOMATO SPRING PHOTO",
+      "confidence_score": 0.7279956936836243,
+      "transcription_quality": 0.44509803921568625,
+      "pronunciation_scores": {
+        "accuracy": 4.450980392156863,
+        "fluency": 2.911982774734497,
+        "completeness": 8.666666666666668,
+        "prosodic": 5.299673355560676
+      },
+      "expert_scores": {
+        "accuracy": 8,
+        "fluency": 9,
+        "completeness": 10.0,
+        "prosodic": 8
+      },
+      "error": "",
+      "word_error_rate": 0.6666666666666666,
+      "character_error_rate": 0.29411764705882354,
+      "bleu_score": 0.0
+    },
+    {
+      "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+      "sample_idx": 8,
+      "text": "LAYLA IS GOOD AT SWIMMING",
+      "speaker": "0003",
+      "success": true,
+      "predicted_text": "LITTLE IS GOOD AT STREAMING",
+      "reference_text": "LAYLA IS GOOD AT SWIMMING",
+      "confidence_score": 0.7227454781532288,
+      "transcription_quality": 0.5257142857142857,
+      "pronunciation_scores": {
+        "accuracy": 6.057142857142857,
+        "fluency": 2.890981912612915,
+        "completeness": 9.200000000000001,
+        "prosodic": 5.848236434459686
+      },
+      "expert_scores": {
+        "accuracy": 8,
+        "fluency": 9,
+        "completeness": 10.0,
+        "prosodic": 8
+      },
+      "error": "",
+      "word_error_rate": 0.4,
+      "character_error_rate": 0.38095238095238093,
+      "bleu_score": 0.0
+    },
+    {
+      "model_path": "C:\\Users\\nguyenphong\\Downloads\\study master\\NLP\\IELTS-Speaking-Evaluation\\src\\finetuning\\models\\whisper_development",
+      "sample_idx": 9,
+      "text": "ALICE GIVE UP BOXING",
+      "speaker": "0003",
+      "success": true,
+      "predicted_text": "EYES GIVE A BOXING",
+      "reference_text": "ALICE GIVE UP BOXING",
+      "confidence_score": 0.775696337223053,
+      "transcription_quality": 0.4764705882352941,
+      "pronunciation_scores": {
+        "accuracy": 5.264705882352941,
+        "fluency": 3.102785348892212,
+        "completeness": 9.0,
+        "prosodic": 5.6623831293162175
+      },
+      "expert_scores": {
+        "accuracy": 9,
+        "fluency": 9,
+        "completeness": 10.0,
+        "prosodic": 9
+      },
+      "error": "",
+      "word_error_rate": 0.5,
+      "character_error_rate": 0.4117647058823529,
+      "bleu_score": 0.0
+    }
+  ]
+}
