@@ -122,11 +122,11 @@ def get_development_config() -> TrainingConfig:
         model_name="openai/whisper-tiny",
         batch_size=8,
         eval_batch_size=16,
-        num_epochs=3,
-        max_train_samples=1000,
-        max_eval_samples=200,
-        eval_steps=200,
-        save_steps=500,
+        num_epochs=10,
+        warmup_steps=100,
+        logging_steps=50,
+        eval_steps=1000,
+        save_steps=2000,
         output_dir="whisper_development"
     )
 
