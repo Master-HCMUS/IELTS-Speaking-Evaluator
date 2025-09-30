@@ -36,23 +36,26 @@ The Whisper model evaluation system compares fine-tuned Whisper models against e
 ### Basic Model Evaluation
 
 ```bash
+# Navigate to evaluation directory
+cd src/evaluation
+
 # Evaluate a fine-tuned model
-python evaluate_whisper_model.py --model-path ./whisper_development
+python evaluate_whisper_standalone.py --model-path ../../whisper_development
 
 # Quick test with limited samples
-python evaluate_whisper_model.py --model-path ./whisper_development --quick-test
+python evaluate_whisper_standalone.py --model-path ../../whisper_development --quick-test
 
 # Evaluate on validation set
-python evaluate_whisper_model.py --model-path ./whisper_production --split validation --max-samples 100
+python evaluate_whisper_standalone.py --model-path ../../whisper_production --split validation --max-samples 100
 ```
 
 ### Programmatic Usage
 
 ```python
-from src.evaluation.whisper_evaluator import WhisperModelEvaluator
+from src.evaluation.standalone_whisper_evaluator import StandaloneWhisperModelEvaluator
 
 # Initialize evaluator
-evaluator = WhisperModelEvaluator("./whisper_development")
+evaluator = StandaloneWhisperModelEvaluator("./whisper_development")
 
 # Load dataset
 evaluator.load_dataset(split="test", max_samples=50)
@@ -67,17 +70,19 @@ evaluator.print_evaluation_summary(metrics)
 ### Model Comparison
 
 ```python
-# Compare multiple models
-python examples_whisper_evaluation.py --mode compare --model-paths ./whisper_development ./whisper_production
+# Compare multiple models using the standalone evaluator
+cd src/evaluation
+python evaluate_whisper_standalone.py --model-path ../../whisper_development --quick-test
+python evaluate_whisper_standalone.py --model-path ../../whisper_production --quick-test
 ```
 
 ## Architecture
 
 ### Core Components
 
-1. **WhisperPronunciationAssessor**: Handles transcription and pronunciation scoring
-2. **WhisperModelEvaluator**: Manages dataset evaluation and metric calculation  
-3. **WhisperEvaluationResult**: Data structure for individual sample results
+1. **StandaloneWhisperPronunciationAssessor**: Handles transcription and pronunciation scoring without Azure dependencies
+2. **StandaloneWhisperModelEvaluator**: Manages dataset evaluation and metric calculation independently  
+3. **StandaloneEvaluationMetrics**: Comprehensive evaluation metrics for standalone operation
 
 ### Pronunciation Assessment Methodology
 
