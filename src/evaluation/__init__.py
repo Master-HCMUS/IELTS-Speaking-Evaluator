@@ -1,10 +1,21 @@
 """
 Evaluation package for IELTS Speaking Assessment
 
-This package provides evaluation tools for comparing Azure Speech pronunciation
-assessment with expert human annotations from benchmark datasets.
+This package provides evaluation tools for comparing pronunciation assessment models
+(Azure Speech, fine-tuned Whisper) with expert human annotations from benchmark datasets.
 """
 
 from .dataset_evaluator import SpeechOcean762Evaluator, EvaluationMetrics
+from .whisper_evaluator import (
+    WhisperModelEvaluator, 
+    WhisperPronunciationAssessor,
+    WhisperEvaluationResult
+)
 
-__all__ = ['SpeechOcean762Evaluator', 'EvaluationMetrics']
+__all__ = [
+    'SpeechOcean762Evaluator', 
+    'EvaluationMetrics',
+    'WhisperModelEvaluator',
+    'WhisperPronunciationAssessor', 
+    'WhisperEvaluationResult'
+]
