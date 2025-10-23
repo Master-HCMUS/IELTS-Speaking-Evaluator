@@ -165,6 +165,127 @@ class ConfigurationHandlers:
         
         self.menu_system.wait_for_enter()
     
+    def configure_local_whisper(self) -> None:
+        """Interactive configuration of local Whisper settings."""
+        self.menu_system.display_section_header("Local Whisper Model Configuration")
+        
+        current_config = self.config_manager.get_local_whisper_config()
+        status = self.config_manager.get_local_whisper_status()
+        
+        try:
+            # Display current status
+            print("Current Configuration:")
+            print(f"  Enabled: {'Yes' if current_config['enabled'] else 'No'}")
+            print(f"  Model Path: {current_config['model_path']}")
+            print(f"  Model Exists: {'Yes' if status['model_exists'] else 'No'}")
+            print(f"  Device: {current_config['device']}")
+            print(f"  Prefer Local: {'Yes' if current_config['prefer_local'] else 'No'}")
+            print(f"  Language: {current_config['language']}")
+            print()
+            
+            # Enable/disable local Whisper
+            enabled = self.menu_system.get_yes_no_choice(
+                "Enable local Whisper model?", 
+                current_config['enabled']
+            )
+            
+            if enabled:
+                # Model path configuration
+                model_path = self.menu_system.get_user_input(
+                    f"Model path (current: {current_config['model_path']}): "
+                ).strip()
+                
+                if not model_path:
+                    model_path = current_config['model_path']
+                
+                # Validate model path
+                model_path_obj = Path(model_path)
+                if not model_path_obj.exists():
+                    self.menu_system.display_warning(f"Model path does not exist: {model_path}")
+                    if not self.menu_system.get_yes_no_choice("Continue anyway?", False):
+                        return
+                
+                # Device configuration
+                device_options = ["auto", "cuda", "cpu"]
+                print(f"Device options: {', '.join(device_options)}")
+                device = self.menu_system.get_user_input(
+                    f"Device (current: {current_config['device']}): "
+                ).strip()
+                
+                if not device:
+                    device = current_config['device']
+                elif device not in device_options:
+                    self.menu_system.display_warning(f"Invalid device: {device}. Using 'auto'")
+                    device = "auto"
+                
+                # Preference configuration
+                prefer_local = self.menu_system.get_yes_no_choice(
+                    "Prefer local model over Azure OpenAI when both are available?",
+                    current_config['prefer_local']
+                )
+                
+                # Language configuration
+                language = self.menu_system.get_user_input(
+                    f"Default language (current: {current_config['language']}, 'auto' for auto-detect): "
+                ).strip()
+                
+                if not language:
+                    language = current_config['language']
+                
+                # Save configuration
+                new_config = {
+                    "enabled": enabled,
+                    "model_path": model_path,
+                    "device": device,
+                    "prefer_local": prefer_local,
+                    "language": language
+                }
+                
+                self.config_manager.save_local_whisper_config(new_config)
+                self.menu_system.display_success("Local Whisper configuration saved!")
+                
+                # Test the configuration if enabled
+                if self.menu_system.get_yes_no_choice("Test the local Whisper model?", True):
+                    self._test_local_whisper_model(new_config)
+            else:
+                # Just disable
+                new_config = current_config.copy()
+                new_config["enabled"] = False
+                self.config_manager.save_local_whisper_config(new_config)
+                self.menu_system.display_success("Local Whisper disabled.")
+                
+        except ConfigurationError as e:
+            self.menu_system.display_error(f"Configuration error: {e}")
+        except Exception as e:
+            self.menu_system.display_error(f"Error configuring local Whisper: {e}")
+        
+        self.menu_system.wait_for_enter()
+    
+    def _test_local_whisper_model(self, config: Dict[str, Any]) -> None:
+        """Test the local Whisper model configuration."""
+        try:
+            from ..local_transcription_service import LocalWhisperTranscriptionService
+            
+            self.menu_system.display_info("Testing local Whisper model...")
+            
+            # Try to initialize the service
+            service = LocalWhisperTranscriptionService(
+                model_path=config["model_path"],
+                device=config["device"]
+            )
+            
+            # Test connection
+            result = service.test_connection()
+            
+            if result["status"] == "success":
+                self.menu_system.display_success("Local Whisper model test successful!")
+                print(f"Model parameters: {result.get('model_parameters', 'Unknown'):,}")
+            else:
+                self.menu_system.display_error(f"Model test failed: {result.get('error', 'Unknown error')}")
+                
+        except Exception as e:
+            self.menu_system.display_error(f"Failed to test local Whisper model: {e}")
+    
     def reset_to_defaults(self) -> None:
         """Reset configuration to default values."""
         if self.menu_system.get_yes_no_choice("Reset all settings to defaults? This cannot be undone.", False):

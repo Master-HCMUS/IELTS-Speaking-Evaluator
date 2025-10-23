@@ -144,6 +144,117 @@ class AudioRecorderCLI:
         """Show storage information."""
         self.file_manager.display_storage_info(self.menu_system)
     
+    def _configure_local_whisper(self) -> None:
+        """Configure local Whisper model settings."""
+        self.config_handlers.configure_local_whisper()
+    
+    def _switch_transcription_service(self) -> None:
+        """Switch between Azure OpenAI and local Whisper transcription services."""
+        self.menu_system.display_section_header("Switch Transcription Service")
+        
+        # Get current service info
+        if hasattr(self.workflow_orchestrator, 'transcription_service') and self.workflow_orchestrator.transcription_service:
+            service_info = self.workflow_orchestrator.transcription_service.get_service_info()
+            current_service = service_info.get("service_type", "unknown")
+            print(f"Current service: {current_service.title()}")
+        else:
+            current_service = "none"
+            print("No transcription service currently active")
+        
+        print()
+        
+        # Show available services
+        azure_available = self.config_manager.is_azure_configured()
+        local_available = self.config_manager.is_local_whisper_configured()
+        
+        print("Available services:")
+        print(f"  1. Azure OpenAI Whisper {'✓' if azure_available else '✗ (not configured)'}")
+        print(f"  2. Local Fine-tuned Whisper {'✓' if local_available else '✗ (not configured)'}")
+        print()
+        
+        if not azure_available and not local_available:
+            self.menu_system.display_warning("No transcription services are configured.")
+            self.menu_system.display_info("Please configure at least one service first.")
+            self.menu_system.wait_for_enter()
+            return
+        
+        # Get user choice
+        choice = self.menu_system.get_user_input("Select service (1-2) or press Enter to cancel: ").strip()
+        
+        if choice == "1" and azure_available:
+            if hasattr(self.workflow_orchestrator, 'transcription_service') and self.workflow_orchestrator.transcription_service:
+                if self.workflow_orchestrator.transcription_service.switch_to_azure():
+                    self.menu_system.display_success("Switched to Azure OpenAI Whisper")
+                else:
+                    self.menu_system.display_error("Failed to switch to Azure OpenAI")
+            else:
+                # Initialize transcription service which will choose Azure
+                config = self.config_manager.get_local_whisper_config()
+                config["prefer_local"] = False
+                self.config_manager.save_local_whisper_config(config)
+                self.menu_system.display_success("Set preference to Azure OpenAI Whisper")
+                
+        elif choice == "2" and local_available:
+            if hasattr(self.workflow_orchestrator, 'transcription_service') and self.workflow_orchestrator.transcription_service:
+                if self.workflow_orchestrator.transcription_service.switch_to_local():
+                    self.menu_system.display_success("Switched to Local Fine-tuned Whisper")
+                else:
+                    self.menu_system.display_error("Failed to switch to Local Whisper")
+            else:
+                # Set preference to local
+                config = self.config_manager.get_local_whisper_config()
+                config["prefer_local"] = True
+                self.config_manager.save_local_whisper_config(config)
+                self.menu_system.display_success("Set preference to Local Fine-tuned Whisper")
+                
+        elif choice in ["1", "2"]:
+            self.menu_system.display_error("Selected service is not configured.")
+        elif choice:
+            self.menu_system.display_error("Invalid choice.")
+        
+        self.menu_system.wait_for_enter()
+    
+    def _show_transcription_status(self) -> None:
+        """Show current transcription service status."""
+        self.menu_system.display_section_header("Transcription Service Status")
+        
+        # Azure OpenAI status
+        azure_status = self.config_manager.get_azure_openai_status()
+        print("Azure OpenAI Whisper:")
+        print(f"  Configured: {'Yes' if azure_status['configured'] else 'No'}")
+        if azure_status['configured']:
+            azure_config = self.config_manager.get_azure_openai_config()
+            print(f"  Endpoint: {azure_config['endpoint']}")
+            print(f"  Deployment: {azure_config['deployment_name']}")
+        
+        # Local Whisper status
+        local_status = self.config_manager.get_local_whisper_status()
+        print("\nLocal Fine-tuned Whisper:")
+        print(f"  Enabled: {'Yes' if local_status['enabled'] else 'No'}")
+        print(f"  Model Path: {local_status['model_path']}")
+        print(f"  Model Exists: {'Yes' if local_status['model_exists'] else 'No'}")
+        print(f"  Device: {local_status['device']}")
+        print(f"  Prefer Local: {'Yes' if local_status['prefer_local'] else 'No'}")
+        
+        # Current active service
+        print("\nActive Service:")
+        if hasattr(self.workflow_orchestrator, 'transcription_service') and self.workflow_orchestrator.transcription_service:
+            service_info = self.workflow_orchestrator.transcription_service.get_service_info()
+            service_type = service_info.get("service_type", "unknown")
+            print(f"  Currently using: {service_type.title()}")
+        else:
+            print("  No service currently initialized")
+            
+            # Show which would be selected
+            if self.config_manager.should_use_local_whisper():
+                print("  Would use: Local Fine-tuned Whisper")
+            elif self.config_manager.is_azure_configured():
+                print("  Would use: Azure OpenAI Whisper")
+            else:
+                print("  Would use: None (no services configured)")
+        
+        self.menu_system.wait_for_enter()
+    
     def run(self):
         """Run the main CLI application."""
         self.menu_system.display_welcome()
@@ -160,8 +271,11 @@ class AudioRecorderCLI:
             '8': self.workflow_orchestrator.select_audio_device,
             '9': self.config_handlers.configure_audio_settings,
             '10': self.config_handlers.configure_azure_openai,
-            '11': self.config_handlers.view_current_settings,
-            '12': self.workflow_orchestrator.test_azure_connection,
+            '11': self._configure_local_whisper,
+            '12': self._switch_transcription_service,
+            '13': self._show_transcription_status,
+            '14': self.config_handlers.view_current_settings,
+            '15': self.workflow_orchestrator.test_azure_connection,
             's': self._show_storage_info,  # Hidden storage info option
             'h': self.menu_system.display_help,
             'help': self.menu_system.display_help,
@@ -186,8 +300,10 @@ Examples:
   python -m src.cli --evaluate-dataset           # Evaluate against SpeechOcean762 dataset
   python -m src.cli --evaluate-dataset --max-samples 100  # Evaluate on 100 samples
   python -m src.cli --devices                    # List audio devices
-  python -m src.cli --config                     # Configure settings
+  python -m src.cli --config                     # Configure audio settings
   python -m src.cli --azure-config               # Configure Azure OpenAI
+  python -m src.cli --local-whisper-config       # Configure local Whisper model
+  python -m src.cli --test-transcription         # Test transcription service
         """
     )
     
@@ -222,9 +338,21 @@ Examples:
     )
     
     parser.add_argument(
+        '--local-whisper-config', '-lw',
+        action='store_true',
+        help='Open local Whisper configuration menu and exit'
+    )
+    
+    parser.add_argument(
         '--test-azure',
         action='store_true',
         help='Test Azure OpenAI connection and exit'
+    )
+    
+    parser.add_argument(
+        '--test-transcription',
+        action='store_true',
+        help='Test transcription service connection and exit'
     )
     
     parser.add_argument(
@@ -289,8 +417,16 @@ def main():
             # Configure Azure OpenAI and exit
             cli.config_handlers.configure_azure_openai()
             
+        elif args.local_whisper_config:
+            # Configure local Whisper and exit
+            cli._configure_local_whisper()
+            
         elif args.test_azure:
             # Test Azure connection and exit
+            cli.workflow_orchestrator.test_azure_connection()
+            
+        elif args.test_transcription:
+            # Test transcription service and exit
             cli.workflow_orchestrator.test_azure_connection()
             
         elif args.assess_pronunciation:

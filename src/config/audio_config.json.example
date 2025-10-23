@@ -1,0 +1,38 @@
+{
+  "audio": {
+    "sample_rate": 44100,
+    "channels": 1,
+    "dtype": "int16"
+  },
+  "output": {
+    "directory": "recordings",
+    "filename_template": "recording_{timestamp}.wav"
+  },
+  "ui": {
+    "show_real_time_level": false,
+    "auto_save": true
+  },
+  "azure_openai": {
+    "endpoint": "https://your-resource-name.openai.azure.com",
+    "api_key": "YOUR_AZURE_OPENAI_API_KEY_HERE",
+    "deployment_name": "whisper",
+    "api_version": "2024-06-01",
+    "auto_transcribe": true,
+    "language": "en"
+  },
+  "azure_speech": {
+    "speech_key": "YOUR_AZURE_SPEECH_API_KEY_HERE",
+    "speech_region": "YOUR_AZURE_REGION",
+    "locale": "en-US",
+    "enable_pronunciation_assessment": true,
+    "assessment_granularity": "Phoneme",
+    "enable_prosody": true
+  },
+  "local_whisper": {
+    "enabled": true,
+    "model_path": "finetuning/models/whisper_development",
+    "device": "auto",
+    "prefer_local": true,
+    "language": "en"
+  }
+}

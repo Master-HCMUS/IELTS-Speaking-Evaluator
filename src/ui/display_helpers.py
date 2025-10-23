@@ -145,9 +145,19 @@ class DisplayHelpers:
         print("\n📝 Transcription Results:")
         print("=" * 50)
         print(f"Text: {result['text']}")
-        print(f"Language: {result['language']}")
-        print(f"Duration: {DisplayHelpers.format_duration(result['duration'])}")
-        print(f"Word count: {result['word_count']}")
+        
+        # Display language if available
+        if result.get('language'):
+            print(f"Language: {result['language']}")
+        
+        # Display duration if available
+        if result.get('duration'):
+            print(f"Duration: {DisplayHelpers.format_duration(result['duration'])}")
+        
+        # Display word count if available
+        if result.get('word_count'):
+            print(f"Word count: {result['word_count']}")
+        
         print(f"Processing time: {DisplayHelpers.format_duration(result['processing_time'])}")
         
         if result.get('confidence_score'):

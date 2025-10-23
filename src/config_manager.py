@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Dict, Any
 
 from dotenv import load_dotenv
-from .exceptions import ConfigurationError
+
+# Handle both relative and absolute imports
+try:
+    from .exceptions import ConfigurationError
+except ImportError:
+    from exceptions import ConfigurationError
 
 
 class ConfigManager:
@@ -52,6 +57,13 @@ class ConfigManager:
             "enable_pronunciation_assessment": True,
             "assessment_granularity": "Phoneme",
             "enable_prosody": True
+        },
+        "local_whisper": {
+            "enabled": False,
+            "model_path": "src/finetuning/models/whisper_development",
+            "device": "auto",
+            "prefer_local": False,
+            "language": "auto"
         }
     }
     
@@ -284,6 +296,42 @@ class ConfigManager:
         }
         if locale not in valid_speech_locales:
             raise ConfigurationError(f"Invalid speech locale: {locale}. Must be one of: {', '.join(sorted(valid_speech_locales))}")
+        
+        # Validate Local Whisper configuration
+        local_whisper_config = config.get("local_whisper", {})
+        
+        # Validate enabled flag
+        enabled = local_whisper_config.get("enabled", False)
+        if not isinstance(enabled, bool):
+            raise ConfigurationError("Local Whisper 'enabled' must be a boolean value")
+        
+        # Validate model_path
+        model_path = local_whisper_config.get("model_path", "")
+        if not isinstance(model_path, str):
+            raise ConfigurationError("Local Whisper model_path must be a string")
+        
+        # Validate device
+        device = local_whisper_config.get("device", "auto")
+        if not isinstance(device, str):
+            raise ConfigurationError("Local Whisper device must be a string")
+        
+        valid_devices = {"auto", "cuda", "cpu"}
+        if device not in valid_devices:
+            raise ConfigurationError(f"Invalid device: {device}. Must be one of: {', '.join(sorted(valid_devices))}")
+        
+        # Validate prefer_local flag
+        prefer_local = local_whisper_config.get("prefer_local", False)
+        if not isinstance(prefer_local, bool):
+            raise ConfigurationError("Local Whisper 'prefer_local' must be a boolean value")
+        
+        # Validate language
+        local_language = local_whisper_config.get("language", "auto")
+        if not isinstance(local_language, str):
+            raise ConfigurationError("Local Whisper language must be a string")
+        
+        # Use same valid languages as Azure OpenAI
+        if local_language not in valid_languages:
+            raise ConfigurationError(f"Invalid local Whisper language code: {local_language}. Must be one of: {', '.join(sorted(valid_languages))}")
     
     def _save_config(self, config: Dict[str, Any]) -> None:
         """
@@ -452,6 +500,25 @@ class ConfigManager:
         deployment = azure_config.get("deployment_name", "").strip()
         
         return bool(endpoint and api_key and deployment)
+    
+    def get_azure_openai_status(self) -> Dict[str, Any]:
+        """
+        Get Azure OpenAI configuration status.
+        
+        Returns:
+            Dict[str, Any]: Status information for Azure OpenAI service
+        """
+        azure_config = self.get_azure_openai_config()
+        
+        return {
+            "configured": self.is_azure_configured(),
+            "endpoint_set": bool(azure_config.get("endpoint")),
+            "api_key_set": bool(azure_config.get("api_key")),
+            "deployment_name": azure_config.get("deployment_name", "whisper"),
+            "api_version": azure_config.get("api_version", "2024-06-01"),
+            "auto_transcribe": azure_config.get("auto_transcribe", True),
+            "language": azure_config.get("language", "auto")
+        }
     
     def is_speech_configured(self) -> bool:
         """
@@ -644,3 +711,82 @@ Configuration File: {self.config_file}
             "locale": speech_config.get("locale", "en-US"),
             "pronunciation_assessment_enabled": speech_config.get("enable_pronunciation_assessment", True)
         }
+    
+    def get_local_whisper_config(self) -> Dict[str, Any]:
+        """
+        Get local Whisper model configuration parameters.
+        
+        Returns:
+            Dict[str, Any]: Local Whisper configuration dictionary
+        """
+        return self.config["local_whisper"].copy()
+    
+    def save_local_whisper_config(self, whisper_config: Dict[str, Any]) -> None:
+        """
+        Save local Whisper model configuration parameters.
+        
+        Args:
+            whisper_config: Local Whisper configuration dictionary
+            
+        Raises:
+            ConfigurationError: If configuration is invalid
+        """
+        # Validate before saving
+        temp_config = self.config.copy()
+        temp_config["local_whisper"] = whisper_config
+        self._validate_config(temp_config)
+        
+        # Update and save
+        self.config["local_whisper"] = whisper_config
+        self._save_config(self.config)
+    
+    def get_local_whisper_status(self) -> Dict[str, Any]:
+        """
+        Get local Whisper model configuration status.
+        
+        Returns:
+            Dict[str, Any]: Status information for local Whisper model
+        """
+        whisper_config = self.get_local_whisper_config()
+        model_path = Path(whisper_config.get("model_path", ""))
+        
+        return {
+            "enabled": bool(whisper_config.get("enabled", False)),
+            "model_path": str(model_path),
+            "model_exists": model_path.exists() and model_path.is_dir(),
+            "device": whisper_config.get("device", "auto"),
+            "prefer_local": bool(whisper_config.get("prefer_local", False)),
+            "language": whisper_config.get("language", "auto")
+        }
+    
+    def is_local_whisper_configured(self) -> bool:
+        """
+        Check if local Whisper model is properly configured and available.
+        
+        Returns:
+            bool: True if local Whisper is configured and model exists
+        """
+        status = self.get_local_whisper_status()
+        return status["enabled"] and status["model_exists"]
+    
+    def should_use_local_whisper(self) -> bool:
+        """
+        Determine if local Whisper should be used for transcription.
+        
+        Returns:
+            bool: True if local Whisper should be used
+        """
+        if not self.is_local_whisper_configured():
+            return False
+        
+        whisper_config = self.get_local_whisper_config()
+        
+        # If prefer_local is True, use local model
+        if whisper_config.get("prefer_local", False):
+            return True
+        
+        # If Azure is not configured but local is, use local
+        if not self.is_azure_configured():
+            return True
+        
+        return False

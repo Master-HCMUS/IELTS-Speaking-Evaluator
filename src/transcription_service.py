@@ -14,13 +14,23 @@ from typing import Dict, Any, Optional, Union
 import openai
 from openai import AzureOpenAI
 
-from .exceptions import (
-    TranscriptionError, 
-    AzureAuthenticationError, 
-    AzureAPIError, 
-    TranscriptionProcessingError,
-    AudioFileError
-)
+# Handle both relative and absolute imports
+try:
+    from .exceptions import (
+        TranscriptionError, 
+        AzureAuthenticationError, 
+        AzureAPIError, 
+        TranscriptionProcessingError,
+        AudioFileError
+    )
+except ImportError:
+    from exceptions import (
+        TranscriptionError, 
+        AzureAuthenticationError, 
+        AzureAPIError, 
+        TranscriptionProcessingError,
+        AudioFileError
+    )
 
 
 class AzureOpenAITranscriptionService:

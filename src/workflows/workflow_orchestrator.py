@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from ..audio_recorder import AudioRecorder
-from ..transcription_service import AzureOpenAITranscriptionService
+from ..combined_transcription_service import CombinedTranscriptionService
 from ..pronunciation_service import AzureSpeechPronunciationService
 from ..config_manager import ConfigManager
 from ..ui.menu_system import MenuSystem
@@ -44,7 +44,7 @@ class WorkflowOrchestrator:
         self.config_manager = config_manager
         self.menu_system = menu_system
         self.recorder: Optional[AudioRecorder] = None
-        self.transcription_service: Optional[AzureOpenAITranscriptionService] = None
+        self.transcription_service: Optional[CombinedTranscriptionService] = None
         self.pronunciation_service: Optional[AzureSpeechPronunciationService] = None
     
     def initialize_recorder(self) -> bool:
@@ -71,33 +71,28 @@ class WorkflowOrchestrator:
     
     def initialize_transcription_service(self) -> bool:
         """
-        Initialize the Azure OpenAI transcription service.
+        Initialize the combined transcription service.
         
         Returns:
             bool: True if initialization successful, False otherwise
         """
         try:
-            azure_config = self.config_manager.get_azure_openai_config()
+            self.transcription_service = CombinedTranscriptionService(self.config_manager)
             
-            if not azure_config.get('endpoint'):
-                self.menu_system.display_error("Azure OpenAI endpoint not configured. Please configure Azure settings first.")
-                return False
+            # Display which service is active
+            service_info = self.transcription_service.get_service_info()
+            if service_info["service_type"] == "azure":
+                self.menu_system.display_success("Azure OpenAI Whisper transcription service initialized")
+            elif service_info["service_type"] == "local":
+                self.menu_system.display_success("Local fine-tuned Whisper transcription service initialized")
             
-            if not azure_config.get('api_key'):
-                self.menu_system.display_error("Azure OpenAI API key not configured. Please add your API key to the .env file.")
-                return False
-            
-            self.transcription_service = AzureOpenAITranscriptionService(
-                endpoint=azure_config['endpoint'],
-                api_key=azure_config['api_key'],
-                deployment_name=azure_config['deployment_name'],
-                api_version=azure_config['api_version']
-            )
             return True
             
-        except AzureAuthenticationError as e:
-            self.menu_system.display_error(f"Azure authentication failed: {e}")
-            self.menu_system.display_info("Please check your API key in the .env file and verify your Azure OpenAI resource settings.")
+        except ConfigurationError as e:
+            self.menu_system.display_error(f"Configuration error: {e}")
+            return False
+        except TranscriptionError as e:
+            self.menu_system.display_error(f"Transcription service error: {e}")
             return False
         except Exception as e:
             self.menu_system.display_error(f"Failed to initialize transcription service: {e}")
@@ -243,10 +238,10 @@ class WorkflowOrchestrator:
             
             # Get transcription settings
             settings = self.config_manager.get_transcription_settings()
-            language = settings.get('language', 'auto')
+            language = settings.get('language', 'en')
             if language == 'auto':
-                language = None  # Let Whisper auto-detect
-            
+                language = 'en' 
+            print("Language set to:", language)
             # Transcribe the file
             result = self.transcription_service.transcribe_audio_file(file_path, language)
             
@@ -520,13 +515,8 @@ class WorkflowOrchestrator:
         self.menu_system.wait_for_enter()
     
     def test_azure_connection(self) -> None:
-        """Test the Azure OpenAI connection with enhanced diagnostics."""
-        self.menu_system.display_section_header("Testing Azure OpenAI Connection")
-        
-        if not self.config_manager.is_azure_configured():
-            self.menu_system.display_error("Azure OpenAI not configured. Please configure it first.")
-            self.menu_system.wait_for_enter()
-            return
+        """Test the transcription service connection with enhanced diagnostics."""
+        self.menu_system.display_section_header("Testing Transcription Service Connection")
         
         try:
             # Initialize or get transcription service
@@ -535,21 +525,34 @@ class WorkflowOrchestrator:
                 return
             
             # Test connection
-            success = self.transcription_service.test_connection()
+            result = self.transcription_service.test_connection()
             
-            if success:
-                self.menu_system.display_success("Azure OpenAI connection test successful!")
-                
-                # Show service info
-                info = self.transcription_service.get_service_info()
-                print(f"\nService Information:")
-                print(f"  Endpoint: {info['endpoint']}")
-                print(f"  Deployment: {info['deployment_name']}")
-                print(f"  API Version: {info['api_version']}")
-                print(f"  Max File Size: {info['max_file_size_mb']} MB")
+            if result["status"] == "success":
+                service_type = result.get("service_type", "unknown")
+                if service_type == "azure":
+                    self.menu_system.display_success("Azure OpenAI connection test successful!")
+                    print(f"\nService Information:")
+                    print(f"  Endpoint: {result.get('endpoint', 'N/A')}")
+                    print(f"  Deployment: {result.get('deployment', 'N/A')}")
+                    print(f"  Service Type: Azure OpenAI Whisper")
+                elif service_type == "local":
+                    self.menu_system.display_success("Local Whisper model test successful!")
+                    print(f"\nService Information:")
+                    print(f"  Model Path: {result.get('model_path', 'N/A')}")
+                    print(f"  Device: {result.get('device', 'N/A')}")
+                    print(f"  Parameters: {result.get('model_parameters', 'N/A'):,}")
+                    print(f"  Service Type: Local Fine-tuned Whisper")
+                else:
+                    self.menu_system.display_success("Transcription service test successful!")
             else:
-                self.menu_system.display_error("Azure OpenAI connection test failed.")
-                self.menu_system.display_info("Check your endpoint, deployment name, and authentication.")
+                self.menu_system.display_error(f"Transcription service test failed: {result.get('error', 'Unknown error')}")
+                
+                # Get available services info
+                available = self.transcription_service.get_available_services()
+                print(f"\nAvailable services:")
+                print(f"  Azure OpenAI: {'✓' if available['azure'] else '✗'}")
+                print(f"  Local Whisper: {'✓' if available['local'] else '✗'}")
+                print(f"  Active: {available.get('active', 'None')}")
                 
         except Exception as e:
             error_message = str(e).lower()

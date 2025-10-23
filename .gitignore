@@ -133,6 +133,18 @@ recordings/*.wav
 config/audio_config.json
 test_config.json
 
+# Configuration files with sensitive data (API keys, credentials)
+src/config/audio_config.json
+config/audio_config.json
+**/audio_config.json
+!**/audio_config.json.example
+*.env
+.env.*
+!.env.example
+config.json
+secrets.json
+credentials.json
+
 # IDE and editor files
 .vscode/
 .idea/
