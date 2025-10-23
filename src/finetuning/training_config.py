@@ -137,7 +137,7 @@ def get_production_config() -> TrainingConfig:
         model_name="openai/whisper-base",
         batch_size=16,
         eval_batch_size=32,
-        num_epochs=30,
+        num_epochs=50,
         learning_rate=5e-6,
         warmup_steps=1000,
         eval_steps=1000,
