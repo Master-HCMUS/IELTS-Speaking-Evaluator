@@ -134,7 +134,7 @@ def get_development_config() -> TrainingConfig:
 def get_production_config() -> TrainingConfig:
     """Get configuration for production fine-tuning."""
     return TrainingConfig(
-        model_name="openai/whisper-small",
+        model_name="openai/whisper-base",
         batch_size=16,
         eval_batch_size=32,
         num_epochs=5,
