@@ -4,6 +4,9 @@ Local Whisper transcription service for speech-to-text conversion using fine-tun
 This module provides a clean interface for transcribing audio files using locally stored
 fine-tuned Whisper models. It handles model loading, audio preprocessing, and inference
 with comprehensive error handling.
+
+Note: Fine-tuned models from the STT fine-tuning process can be found in:
+      src/finetuning/finetuning_STT/models/
 """
 
 import json

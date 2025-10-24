@@ -11,18 +11,18 @@ from pathlib import Path
 
 # Add src to Python path and handle imports
 script_dir = Path(__file__).parent
-src_dir = script_dir.parent
+src_dir = script_dir.parent.parent
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from finetuning.training_config import (
+from finetuning.finetuning_STT.training_config import (
     TrainingConfig, 
     get_quick_test_config, 
     get_development_config,
     get_production_config,
     get_large_model_config
 )
-from finetuning.whisper_finetuner import WhisperFineTuner
+from finetuning.finetuning_STT.whisper_finetuner import WhisperFineTuner
 
 
 def run_quick_test():

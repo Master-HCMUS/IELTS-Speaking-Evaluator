@@ -1,14 +1,27 @@
 """
-Fine-tuning package for Whisper models on SpeechOcean762 dataset.
+Fine-tuning package for Whisper models.
 
-This package provides functionality to fine-tune OpenAI Whisper models
-for improved speech recognition and pronunciation assessment on the
-SpeechOcean762 dataset.
+This package provides different approaches for fine-tuning Whisper models:
+
+1. finetuning_STT: Standard Speech-to-Text fine-tuning on SpeechOcean762 dataset
+   - Uses encoder-decoder architecture
+   - Trains on (audio, text) pairs
+   - Improves transcription accuracy
+
+2. (Future) Other fine-tuning approaches can be added here, such as:
+   - Pronunciation assessment fine-tuning
+   - Multi-task learning approaches
+   - Custom regression models
 """
 
-from .whisper_finetuner import WhisperFineTuner
-from .data_processor import SpeechOcean762DataProcessor
-from .training_config import TrainingConfig
+# Import from STT fine-tuning submodule for backward compatibility
+try:
+    from .finetuning_STT import WhisperFineTuner, TrainingConfig, SpeechOcean762DataProcessor
+except ImportError:
+    # Fallback if import fails
+    WhisperFineTuner = None
+    TrainingConfig = None
+    SpeechOcean762DataProcessor = None
 
 __all__ = [
     'WhisperFineTuner',

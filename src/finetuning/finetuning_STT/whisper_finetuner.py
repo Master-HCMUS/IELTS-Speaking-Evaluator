@@ -37,10 +37,10 @@ from pathlib import Path
 # Add src directory to path for standalone execution
 if __name__ == "__main__":
     script_dir = Path(__file__).parent
-    src_dir = script_dir.parent
+    src_dir = script_dir.parent.parent
     sys.path.insert(0, str(src_dir))
-    from finetuning.training_config import TrainingConfig
-    from finetuning.data_processor import SpeechOcean762DataProcessor
+    from finetuning.finetuning_STT.training_config import TrainingConfig
+    from finetuning.finetuning_STT.data_processor import SpeechOcean762DataProcessor
 else:
     # Module imports
     from .training_config import TrainingConfig
@@ -559,7 +559,7 @@ def main():
         config = TrainingConfig.load(args.config)
     elif args.quick_test:
         if __name__ == "__main__":
-            from finetuning.training_config import get_quick_test_config
+            from finetuning.finetuning_STT.training_config import get_quick_test_config
         else:
             from .training_config import get_quick_test_config
         config = get_quick_test_config()
