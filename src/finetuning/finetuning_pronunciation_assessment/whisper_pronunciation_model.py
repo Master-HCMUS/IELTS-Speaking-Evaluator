@@ -75,12 +75,11 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         """
         super().__init__()
         
-        # Delay import to avoid JAX dependency issues on Kaggle
-        from transformers import WhisperModel
-        
-        self.model = WhisperModel.from_pretrained(model_name)
-        config = self.model.config
-        hidden_dim = config.d_model
+        # Store config for lazy loading (import happens on first forward pass)
+        self.model_name = model_name
+        self.model = None
+        self._hidden_dim = None
+        self._initialized = False
         
         # Support both naming conventions
         if use_word_level_assessment is not None:
@@ -94,6 +93,20 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         self.train_phone_level = train_phone_level
         self.train_utterance_level = train_utterance_level
         self.freeze_encoder = freeze_encoder
+    
+    def _initialize_model(self):
+        """Lazy initialization of model and heads to avoid JAX import issues."""
+        if self._initialized:
+            return
+        
+        # Import here to delay JAX initialization
+        from transformers import WhisperModel
+        
+        logger.info(f"Loading WhisperModel: {self.model_name}")
+        self.model = WhisperModel.from_pretrained(self.model_name)
+        config = self.model.config
+        hidden_dim = config.d_model
+        self._hidden_dim = hidden_dim
         
         # Freeze encoder if requested
         if self.freeze_encoder:
@@ -118,6 +131,10 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             self.utterance_prosodic_head = nn.Linear(hidden_dim, 1)
             self.utterance_completeness_head = nn.Linear(hidden_dim, 1)
             self.utterance_total_head = nn.Linear(hidden_dim, 1)
+        
+        self._initialized = True
+        logger.info("Model initialized successfully")
+
     
     def forward(
         self,
@@ -140,6 +157,9 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         Returns:
             Dictionary with logits and loss
         """
+        # Lazy initialization of model and heads
+        self._initialize_model()
+        
         # Get encoder outputs
         encoder_outputs = self.model.encoder(input_features)
         encoder_last_hidden = encoder_outputs.last_hidden_state  # [batch, seq_len, hidden_dim]
