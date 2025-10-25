@@ -295,35 +295,49 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         losses = {}
         
         # Word-level losses
-        if 'word_level' in targets:
+        if 'word_level' in targets and targets['word_level']:
             word_targets = targets['word_level']
             word_preds = predictions['word_level']
             
             for score_type in ['accuracy', 'stress', 'total']:
                 if score_type in word_targets and score_type in word_preds:
-                    # Use MSE loss for regression
-                    loss = F.mse_loss(
-                        word_preds[score_type], 
-                        word_targets[score_type].float(),
-                        reduction='mean'
-                    )
-                    losses[f'word_{score_type}'] = loss
+                    pred_tensor = word_preds[score_type]  # [batch_size, seq_len]
+                    target_tensor = word_targets[score_type]  # [batch_size, num_words]
+                    
+                    # Handle dimension mismatch: downsample predictions to match targets
+                    pooled_pred = self._align_predictions_to_targets(pred_tensor, target_tensor)
+                    
+                    if pooled_pred is not None:
+                        # Compute MSE loss
+                        loss = F.mse_loss(
+                            pooled_pred, 
+                            target_tensor.float(),
+                            reduction='mean'
+                        )
+                        losses[f'word_{score_type}'] = loss
         
         # Phone-level losses
-        if 'phone_level' in targets:
+        if 'phone_level' in targets and targets['phone_level']:
             phone_targets = targets['phone_level']
             phone_preds = predictions['phone_level']
             
             if 'accuracy' in phone_targets and 'accuracy' in phone_preds:
-                loss = F.mse_loss(
-                    phone_preds['accuracy'],
-                    phone_targets['accuracy'].float(),
-                    reduction='mean'
-                )
-                losses['phone_accuracy'] = loss
+                pred_tensor = phone_preds['accuracy']  # [batch_size, seq_len]
+                target_tensor = phone_targets['accuracy']  # [batch_size, num_phones]
+                
+                # Handle dimension mismatch: downsample predictions to match targets
+                pooled_pred = self._align_predictions_to_targets(pred_tensor, target_tensor)
+                
+                if pooled_pred is not None:
+                    loss = F.mse_loss(
+                        pooled_pred,
+                        target_tensor.float(),
+                        reduction='mean'
+                    )
+                    losses['phone_accuracy'] = loss
         
-        # Utterance-level losses
-        if 'utterance_level' in targets:
+        # Utterance-level losses (these should match already since they're pooled)
+        if 'utterance_level' in targets and targets['utterance_level']:
             utterance_targets = targets['utterance_level']
             utterance_preds = predictions['utterance_level']
             
@@ -337,6 +351,60 @@ class WhisperPronunciationAssessmentModel(nn.Module):
                     losses[f'utterance_{score_type}'] = loss
         
         return losses
+    
+    def _align_predictions_to_targets(self, predictions: torch.Tensor, targets: torch.Tensor) -> Optional[torch.Tensor]:
+        """
+        Align prediction tensors to target tensor dimensions.
+        
+        Args:
+            predictions: Predicted scores [batch_size, seq_len]
+            targets: Target scores [batch_size, target_len]
+            
+        Returns:
+            Aligned predictions or None if alignment fails
+        """
+        if predictions.size(1) == targets.size(1):
+            return predictions
+        
+        batch_size = predictions.size(0)
+        target_len = targets.size(1)
+        seq_len = predictions.size(1)
+        
+        # Check for valid dimensions
+        if target_len <= 0 or seq_len <= 0:
+            return None
+        
+        try:
+            if seq_len > target_len:
+                # Downsample predictions to match target length
+                pool_size = seq_len // target_len
+                if pool_size > 0:
+                    # Take average of every pool_size frames
+                    aligned_pred = predictions[:, :target_len * pool_size].view(
+                        batch_size, target_len, pool_size
+                    ).mean(dim=2)
+                else:
+                    # Linear interpolation for better alignment
+                    aligned_pred = F.interpolate(
+                        predictions.unsqueeze(1), 
+                        size=target_len, 
+                        mode='linear', 
+                        align_corners=False
+                    ).squeeze(1)
+            else:
+                # Upsample predictions to match target length
+                aligned_pred = F.interpolate(
+                    predictions.unsqueeze(1), 
+                    size=target_len, 
+                    mode='linear', 
+                    align_corners=False
+                ).squeeze(1)
+            
+            return aligned_pred
+            
+        except Exception as e:
+            # Return None if alignment fails
+            return None
     
     def generate_transcription(self, input_features: torch.Tensor, **kwargs) -> torch.Tensor:
         """Generate transcription using the Whisper decoder."""
