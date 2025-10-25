@@ -28,55 +28,40 @@ class PronunciationAssessmentDataCollator:
         
         Args:
             batch: List of examples from dataset, each containing:
-                - input_features: [80, T] mel-spectrogram
+                - input_features: [80, 3000] mel-spectrogram (already padded)
                 - labels: [S] token indices
-                - word_accuracy_scores: [W] word-level scores (if present)
-                - word_stress_scores: [W] word-level scores (if present)
-                - word_total_scores: [W] word-level scores (if present)
-                - phone_accuracy_scores: [P] phone-level scores (if present)
-                - accuracy, fluency, prosodic, completeness, total: utterance scores
+                - utterance scores: accuracy, fluency, prosodic, completeness, total
         
         Returns:
             Dict with batched tensors
         """
-        # Extract input features and pad them
+        # Extract input features (already padded to 3000 by data processor)
         input_features = []
         for ex in batch:
             feat = ex["input_features"]
             # Handle both list and numpy array formats
             if isinstance(feat, list):
                 feat = np.array(feat, dtype=np.float32)
+            
+            # Ensure it's the right shape: [80, 3000]
+            if feat.shape != (80, 3000):
+                # If it's [80, time] and time < 3000, pad it
+                if len(feat.shape) == 2 and feat.shape[0] == 80 and feat.shape[1] < 3000:
+                    pad_width = 3000 - feat.shape[1]
+                    feat = np.pad(feat, ((0, 0), (0, pad_width)), constant_values=-100.0)
+                # If it's [80, time] and time > 3000, truncate
+                elif len(feat.shape) == 2 and feat.shape[0] == 80 and feat.shape[1] > 3000:
+                    feat = feat[:, :3000]
+            
             input_features.append(feat)
         
-        # Get max length for padding
-        feature_lengths = [feat.shape[1] if len(feat.shape) == 2 else len(feat) 
-                          for feat in input_features]
-        max_feat_length = max(feature_lengths)
-        
-        # Pad features
-        batch_size = len(batch)
-        num_mel_bins = input_features[0].shape[0] if len(input_features[0].shape) == 2 else 1
-        
-        padded_features = np.full(
-            (batch_size, num_mel_bins, max_feat_length),
-            self.padding_value,
-            dtype=np.float32
-        )
-        attention_mask = np.zeros((batch_size, max_feat_length), dtype=np.int32)
-        
-        for i, feat in enumerate(input_features):
-            if len(feat.shape) == 2:
-                feat_len = feat.shape[1]
-                padded_features[i, :, :feat_len] = feat
-            else:
-                feat_len = len(feat)
-                padded_features[i, 0, :feat_len] = feat
-            attention_mask[i, :feat_len] = 1
+        # Stack features
+        batch_size = len(input_features)
+        stacked_features = np.stack(input_features, axis=0)  # [batch, 80, 3000]
         
         # Convert to tensors
         collated = {
-            "input_features": torch.from_numpy(padded_features).float(),
-            "attention_mask": torch.from_numpy(attention_mask).long(),
+            "input_features": torch.from_numpy(stacked_features).float(),
         }
         
         # Handle labels (token indices for transcription)
