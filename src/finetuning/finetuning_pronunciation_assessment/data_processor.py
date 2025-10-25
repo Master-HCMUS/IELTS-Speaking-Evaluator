@@ -203,6 +203,13 @@ class SpeechOcean762PronunciationProcessor:
             # Load the split
             dataset = load_dataset("mispeech/speechocean762", split=split)
             
+            # Disable automatic audio decoding to avoid torchcodec dependency
+            # Cast audio column to string to prevent automatic decoding
+            if 'audio' in dataset.features:
+                import datasets
+                dataset = dataset.cast_column('audio', datasets.Value('string'))
+                logger.info(f"Disabled automatic audio decoding for {split} split")
+            
             # Limit samples if specified
             if max_samples_per_split and split in max_samples_per_split:
                 max_samples = max_samples_per_split[split]
@@ -406,8 +413,11 @@ class SpeechOcean762PronunciationProcessor:
                         audio_array, sampling_rate = librosa.load(io.BytesIO(audio_data["bytes"]), sr=None)
                     else:
                         raise ValueError(f"Unknown audio format: {audio_data.keys()}")
+                elif isinstance(audio_data, str):
+                    # Audio data is a file path (when cast to string)
+                    audio_array, sampling_rate = librosa.load(audio_data, sr=None)
                 else:
-                    raise ValueError(f"Invalid audio format: expected dict, got {type(audio_data)}")
+                    raise ValueError(f"Invalid audio format: expected dict or str, got {type(audio_data)}")
                 
                 # Validate audio data
                 if len(audio_array) == 0:
