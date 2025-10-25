@@ -222,20 +222,35 @@ class PronunciationAssessmentTrainer:
         Returns:
             Dictionary of computed metrics
         """
-        # Note: This is a simplified version. In practice, you'd need to
-        # extract the actual prediction values from the model outputs
-        # and compare them with the targets.
+        # The eval_pred contains complex model outputs, not simple predictions/labels
+        # For pronunciation assessment, we'll compute basic loss-based metrics
         
         predictions, labels = eval_pred
         
-        # Basic metrics - in real implementation, you'd process the
-        # pronunciation predictions separately
-        metrics = {
-            "mse": np.mean((predictions - labels) ** 2) if labels is not None else 0.0,
-            "mae": np.mean(np.abs(predictions - labels)) if labels is not None else 0.0,
-        }
-        
-        return metrics
+        # Handle case where predictions might be complex model outputs
+        try:
+            # If predictions is a tensor with loss values, use that
+            if hasattr(predictions, 'shape') and len(predictions.shape) == 1:
+                # Simple case: predictions are loss values
+                avg_loss = float(np.mean(predictions)) if predictions is not None else 0.0
+                return {
+                    "eval_avg_loss": avg_loss,
+                    "eval_loss_std": float(np.std(predictions)) if predictions is not None else 0.0,
+                }
+            
+            # For complex outputs, return basic metrics
+            return {
+                "eval_loss": 0.0,  # Will be filled by trainer automatically
+                "eval_samples": len(predictions) if predictions is not None else 0,
+            }
+            
+        except Exception as e:
+            # Fallback metrics if computation fails
+            logger.warning(f"Failed to compute detailed metrics: {e}")
+            return {
+                "eval_loss": 0.0,
+                "eval_samples": len(predictions) if predictions is not None else 0,
+            }
     
     def setup_trainer(self, datasets: DatasetDict) -> Trainer:
         """
