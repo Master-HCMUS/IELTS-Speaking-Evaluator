@@ -141,11 +141,7 @@ def run_production_training():
     print("   - GPU memory: 12GB+ recommended")
     print("   - Disk space: 3GB+ for model storage")
     print()
-    
-    confirm = input("Do you want to continue? (y/N): ").strip().lower()
-    if confirm != 'y':
-        print("Training cancelled.")
-        return None
+
     
     # Initialize and run fine-tuning
     trainer = PronunciationAssessmentTrainer(config)
