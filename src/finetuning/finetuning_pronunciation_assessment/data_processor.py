@@ -352,32 +352,44 @@ class SpeechOcean762PronunciationProcessor:
         """
         logger.info("Preparing datasets for training...")
         
+        # Cast audio column to prevent automatic decoding
+        from datasets import Audio
+        try:
+            # Try to cast audio to bypass automatic decoding
+            datasets = datasets.cast_column("audio", Audio(sampling_rate=self.sampling_rate))
+        except Exception as e:
+            logger.warning(f"Could not cast audio column: {e}")
+        
         def preprocess_function(examples):
             """Preprocess a batch of examples."""
             # Process audio - handle both dict and direct array formats
             audio_arrays = []
-            for audio in examples["audio"]:
-                # Handle both formats: {"array": ..., "sampling_rate": ...} and direct arrays
-                if isinstance(audio, dict):
-                    audio_array = audio.get("array", audio)
-                    audio_sr = audio.get("sampling_rate", self.sampling_rate)
-                else:
-                    # If it's not a dict, try to convert it to numpy
-                    try:
-                        audio_array = np.asarray(audio)
-                    except:
-                        audio_array = audio
-                    audio_sr = self.sampling_rate
-                
-                # Ensure audio_array is a numpy array
-                if not isinstance(audio_array, np.ndarray):
-                    audio_array = np.asarray(audio_array)
-                
-                processed_audio = self.preprocess_audio(
-                    audio_array,
-                    audio_sr
-                )
-                audio_arrays.append(processed_audio)
+            try:
+                for audio in examples["audio"]:
+                    # Handle both formats: {"array": ..., "sampling_rate": ...} and direct arrays
+                    if isinstance(audio, dict):
+                        audio_array = audio.get("array", audio)
+                        audio_sr = audio.get("sampling_rate", self.sampling_rate)
+                    else:
+                        # If it's not a dict, try to convert it to numpy
+                        try:
+                            audio_array = np.asarray(audio)
+                        except:
+                            audio_array = audio
+                        audio_sr = self.sampling_rate
+                    
+                    # Ensure audio_array is a numpy array
+                    if not isinstance(audio_array, np.ndarray):
+                        audio_array = np.asarray(audio_array)
+                    
+                    processed_audio = self.preprocess_audio(
+                        audio_array,
+                        audio_sr
+                    )
+                    audio_arrays.append(processed_audio)
+            except Exception as e:
+                logger.error(f"Error processing audio: {e}")
+                raise
             
             # Extract features using Whisper feature extractor
             # Use float32 to reduce memory usage
@@ -446,22 +458,29 @@ class SpeechOcean762PronunciationProcessor:
             return batch
         
         # Apply preprocessing with batching
-        # Note: Keep audio column during map, will be removed after
-        # Use smaller batch size to avoid memory issues (std::bad_alloc)
-        # Use num_proc=1 to avoid multiprocessing issues with torchcodec
+        # CRITICAL: num_proc=1 and no multiprocessing to avoid torchcodec issues
+        logger.info("Starting dataset preprocessing...")
         processed_datasets = datasets.map(
             preprocess_function,
             batched=True,
-            batch_size=2,  # Reduced from 8 to prevent memory overflow
-            num_proc=1,  # Must be 1 to avoid torchcodec loading issues in multiprocessing
+            batch_size=2,  # Reduced to prevent memory overflow
+            num_proc=1,  # Must be 1 - no multiprocessing allowed
             desc="Preprocessing datasets"
         )
         
-        # Remove audio column after processing to free memory
-        processed_datasets = processed_datasets.remove_columns(
-            [col for col in processed_datasets["train"].column_names 
-             if col in ["audio"] or col.startswith("_")]
-        )
+        # Remove audio and metadata columns after processing to free memory
+        cols_to_remove = []
+        if "audio" in processed_datasets["train"].column_names:
+            cols_to_remove.append("audio")
+        
+        # Remove any other large or unnecessary columns
+        for col in processed_datasets["train"].column_names:
+            if col.startswith("_") or col in ["words", "alignment"]:
+                cols_to_remove.append(col)
+        
+        if cols_to_remove:
+            logger.info(f"Removing columns: {cols_to_remove}")
+            processed_datasets = processed_datasets.remove_columns(cols_to_remove)
         
         # Update dataset statistics
         self.dataset_statistics = self._compute_dataset_statistics(processed_datasets)
