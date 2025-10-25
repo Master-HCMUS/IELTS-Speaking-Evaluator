@@ -243,6 +243,10 @@ class SpeechOcean762PronunciationProcessor:
         Returns:
             Preprocessed audio array
         """
+        # Convert to float32 if needed
+        if audio_array.dtype != np.float32:
+            audio_array = audio_array.astype(np.float32)
+        
         # Resample if necessary
         if sampling_rate != self.sampling_rate:
             audio_array = librosa.resample(
@@ -253,9 +257,12 @@ class SpeechOcean762PronunciationProcessor:
         
         # Normalize audio amplitude
         if self.normalize_audio:
-            audio_array = librosa.util.normalize(audio_array)
+            # Use norm to avoid unnecessary copies
+            max_val = np.max(np.abs(audio_array))
+            if max_val > 0:
+                audio_array = audio_array / max_val
         
-        # Trim or pad to max length
+        # Trim to max length (don't pad, let Whisper handle it)
         max_length_samples = int(self.max_audio_length * self.sampling_rate)
         if len(audio_array) > max_length_samples:
             audio_array = audio_array[:max_length_samples]
@@ -373,15 +380,21 @@ class SpeechOcean762PronunciationProcessor:
                 audio_arrays.append(processed_audio)
             
             # Extract features using Whisper feature extractor
+            # Use float32 to reduce memory usage
             inputs = self.processor.feature_extractor(
                 audio_arrays,
                 sampling_rate=self.sampling_rate,
                 return_tensors="np"
             )
             
+            # Convert to float32 and ensure C-contiguous for efficiency
+            input_features = inputs.input_features.astype(np.float32)
+            if not input_features.flags['C_CONTIGUOUS']:
+                input_features = np.ascontiguousarray(input_features)
+            
             # Prepare batch dictionary
             batch = {
-                "input_features": inputs.input_features,
+                "input_features": input_features,
             }
             
             # Process transcription if requested
@@ -434,10 +447,11 @@ class SpeechOcean762PronunciationProcessor:
         
         # Apply preprocessing with batching
         # Note: Keep audio column during map, will be removed after
+        # Use smaller batch size to avoid memory issues (std::bad_alloc)
         processed_datasets = datasets.map(
             preprocess_function,
             batched=True,
-            batch_size=8,
+            batch_size=2,  # Reduced from 8 to prevent memory overflow
             num_proc=1,  # Set to 1 to avoid issues with audio processing
             desc="Preprocessing datasets"
         )
