@@ -172,6 +172,7 @@ src/finetuning/whisper_*/
 *.safetensors
 *.bin
 *.pth
+*.pt
 runs/
 
 # Temporary files
