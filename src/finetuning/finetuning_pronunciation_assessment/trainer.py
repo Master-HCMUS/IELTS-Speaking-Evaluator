@@ -53,6 +53,10 @@ class PronunciationAssessmentTrainer:
         if hasattr(self.model, '_initialize_model'):
             self.model._initialize_model()
         
+        # Move model to device
+        self.model = self.model.to(self.device)
+        logger.info(f"Model moved to device: {self.device}")
+        
         # Optimizer
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
