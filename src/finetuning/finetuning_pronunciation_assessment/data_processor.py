@@ -347,12 +347,20 @@ class SpeechOcean762PronunciationProcessor:
         
         def preprocess_function(examples):
             """Preprocess a batch of examples."""
-            # Process audio
+            # Process audio - handle both dict and direct array formats
             audio_arrays = []
             for audio in examples["audio"]:
+                # Handle both formats: {"array": ..., "sampling_rate": ...} and direct arrays
+                if isinstance(audio, dict):
+                    audio_array = audio.get("array", audio)
+                    audio_sr = audio.get("sampling_rate", self.sampling_rate)
+                else:
+                    audio_array = audio
+                    audio_sr = self.sampling_rate
+                
                 processed_audio = self.preprocess_audio(
-                    audio["array"],
-                    audio["sampling_rate"]
+                    audio_array,
+                    audio_sr
                 )
                 audio_arrays.append(processed_audio)
             
@@ -415,6 +423,11 @@ class SpeechOcean762PronunciationProcessor:
                         batch[key] = np.array(batch[key])
             
             return batch
+        
+        # Disable audio decoding by setting format to avoid torchcodec dependency
+        for split_name in datasets.keys():
+            # Use with_format to avoid triggering audio decoding
+            datasets[split_name] = datasets[split_name].with_format("numpy")
         
         # Apply preprocessing with batching
         processed_datasets = datasets.map(
