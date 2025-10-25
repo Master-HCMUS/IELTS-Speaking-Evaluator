@@ -355,8 +355,16 @@ class SpeechOcean762PronunciationProcessor:
                     audio_array = audio.get("array", audio)
                     audio_sr = audio.get("sampling_rate", self.sampling_rate)
                 else:
-                    audio_array = audio
+                    # If it's not a dict, try to convert it to numpy
+                    try:
+                        audio_array = np.asarray(audio)
+                    except:
+                        audio_array = audio
                     audio_sr = self.sampling_rate
+                
+                # Ensure audio_array is a numpy array
+                if not isinstance(audio_array, np.ndarray):
+                    audio_array = np.asarray(audio_array)
                 
                 processed_audio = self.preprocess_audio(
                     audio_array,
@@ -424,20 +432,19 @@ class SpeechOcean762PronunciationProcessor:
             
             return batch
         
-        # Disable audio decoding by setting format to avoid torchcodec dependency
-        for split_name in datasets.keys():
-            # Use with_format to avoid triggering audio decoding
-            datasets[split_name] = datasets[split_name].with_format("numpy")
-        
         # Apply preprocessing with batching
+        # Note: Keep audio column during map, will be removed after
         processed_datasets = datasets.map(
             preprocess_function,
             batched=True,
             batch_size=8,
             num_proc=1,  # Set to 1 to avoid issues with audio processing
-            remove_columns=["audio"] if "audio" in datasets["train"].column_names else None,
             desc="Preprocessing datasets"
         )
+        
+        # Remove audio column after processing
+        if "audio" in processed_datasets["train"].column_names:
+            processed_datasets = processed_datasets.remove_columns(["audio"])
         
         # Update dataset statistics
         self.dataset_statistics = self._compute_dataset_statistics(processed_datasets)
