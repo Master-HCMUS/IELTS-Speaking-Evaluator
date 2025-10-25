@@ -448,17 +448,20 @@ class SpeechOcean762PronunciationProcessor:
         # Apply preprocessing with batching
         # Note: Keep audio column during map, will be removed after
         # Use smaller batch size to avoid memory issues (std::bad_alloc)
+        # Use num_proc=1 to avoid multiprocessing issues with torchcodec
         processed_datasets = datasets.map(
             preprocess_function,
             batched=True,
             batch_size=2,  # Reduced from 8 to prevent memory overflow
-            num_proc=1,  # Set to 1 to avoid issues with audio processing
+            num_proc=1,  # Must be 1 to avoid torchcodec loading issues in multiprocessing
             desc="Preprocessing datasets"
         )
         
-        # Remove audio column after processing
-        if "audio" in processed_datasets["train"].column_names:
-            processed_datasets = processed_datasets.remove_columns(["audio"])
+        # Remove audio column after processing to free memory
+        processed_datasets = processed_datasets.remove_columns(
+            [col for col in processed_datasets["train"].column_names 
+             if col in ["audio"] or col.startswith("_")]
+        )
         
         # Update dataset statistics
         self.dataset_statistics = self._compute_dataset_statistics(processed_datasets)
