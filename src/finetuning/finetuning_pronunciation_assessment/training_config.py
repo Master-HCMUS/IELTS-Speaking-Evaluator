@@ -147,7 +147,7 @@ def get_development_config() -> PronunciationTrainingConfig:
 def get_production_config() -> PronunciationTrainingConfig:
     """Get configuration for production mode."""
     return PronunciationTrainingConfig(
-        whisper_model_name="openai/whisper",
+        whisper_model_name="openai/whisper-base",
         output_dir="models/pronunciation_production",
         max_train_samples=None,  # Use full dataset
         max_eval_samples=None,

@@ -171,23 +171,15 @@ class WhisperPronunciationAssessmentModel(nn.Module):
     def forward(
         self,
         input_features: torch.Tensor,
-        labels: Optional[torch.Tensor] = None,
-        word_scores: Optional[torch.Tensor] = None,
-        phone_scores: Optional[torch.Tensor] = None,
-        utterance_scores: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Dict:
         """
         Forward pass.
         
         Args:
-            input_features: Audio mel-spectrogram features
-            labels: Transcription token IDs
-            word_scores: Target word-level scores
-            phone_scores: Target phone-level scores
-            utterance_scores: Target utterance-level scores
+            input_features: Audio mel-spectrogram features [batch, 80, 3000]
             
         Returns:
-            Dictionary with logits and loss
+            Dictionary with assessment logits
         """
         # Lazy initialization of model and heads
         self._initialize_model()
