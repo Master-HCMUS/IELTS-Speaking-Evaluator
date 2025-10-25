@@ -18,7 +18,6 @@ import logging
 
 from transformers import WhisperFeatureExtractor, WhisperTokenizer, WhisperProcessor
 from datasets import load_dataset, DatasetDict, Dataset
-from torch.utils.data import DataCollator
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -484,7 +483,7 @@ class SpeechOcean762PronunciationProcessor:
         """
         return self.dataset_statistics
     
-    def create_data_collator(self, include_transcription: bool = True) -> DataCollator:
+    def create_data_collator(self, include_transcription: bool = True) -> 'PronunciationAssessmentDataCollator':
         """
         Create a data collator for batch processing.
         
