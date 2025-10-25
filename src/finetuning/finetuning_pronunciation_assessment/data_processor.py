@@ -36,51 +36,38 @@ class PronunciationDataCollator:
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
         """Collate batch for pronunciation assessment training."""
         
-        try:
-            # Extract different components
-            input_features = [f["input_features"] for f in features]
-            labels = [f["labels"] for f in features] if "labels" in features[0] else None
+        # Extract different components
+        input_features = [f["input_features"] for f in features]
+        labels = [f["labels"] for f in features] if "labels" in features[0] else None
+        
+        # Pad input features - convert to proper format for Whisper feature extractor
+        # Convert numpy arrays to the expected format
+        batch = {
+            "input_features": torch.tensor(np.stack(input_features), dtype=torch.float)
+        }
+        
+        # Pad labels for ASR training
+        if labels is not None:
+            # Convert numpy arrays to lists if needed
+            labels_list = []
+            for label in labels:
+                if isinstance(label, np.ndarray):
+                    labels_list.append(label.tolist())
+                else:
+                    labels_list.append(label)
             
-            # Pad input features - convert to proper format for Whisper feature extractor
-            # Convert numpy arrays to the expected format
-            batch = {
-                "input_features": torch.tensor(np.stack(input_features), dtype=torch.float)
-            }
+            labels_batch = self.processor.tokenizer.pad(
+                {"input_ids": labels_list},
+                return_tensors="pt",
+                max_length=self.max_target_length,
+                padding=True
+            )
             
-            # Pad labels for ASR training
-            if labels is not None:
-                # Convert numpy arrays to lists if needed
-                labels_list = []
-                for label in labels:
-                    if isinstance(label, np.ndarray):
-                        labels_list.append(label.tolist())
-                    else:
-                        labels_list.append(label)
-                
-                labels_batch = self.processor.tokenizer.pad(
-                    {"input_ids": labels_list},
-                    return_tensors="pt",
-                    max_length=self.max_target_length,
-                    padding=True
-                )
-                
-                # Replace padding with -100 for loss computation
-                labels = labels_batch["input_ids"].masked_fill(
-                    labels_batch["input_ids"] == self.processor.tokenizer.pad_token_id, -100
-                )
-                batch["labels"] = labels
-            
-        except Exception as e:
-            # Fallback: create dummy batch if collation fails
-            batch_size = len(features)
-            batch = {
-                "input_features": torch.zeros((batch_size, 80, 3000), dtype=torch.float)
-            }
-            if "labels" in features[0]:
-                batch["labels"] = torch.full((batch_size, 10), -100, dtype=torch.long)
-            
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Data collation failed, using dummy batch: {e}")
+            # Replace padding with -100 for loss computation
+            labels = labels_batch["input_ids"].masked_fill(
+                labels_batch["input_ids"] == self.processor.tokenizer.pad_token_id, -100
+            )
+            batch["labels"] = labels
         
         # Collect pronunciation targets
         pronunciation_targets = {
@@ -91,71 +78,62 @@ class PronunciationDataCollator:
         
         # Process word-level targets
         if 'word_accuracy_scores' in features[0]:
-            try:
-                # Pad word-level sequences
-                word_accuracy = [f['word_accuracy_scores'] for f in features]
-                word_stress = [f['word_stress_scores'] for f in features]
-                word_total = [f['word_total_scores'] for f in features]
+            # Pad word-level sequences
+            word_accuracy = [f['word_accuracy_scores'] for f in features]
+            word_stress = [f['word_stress_scores'] for f in features]
+            word_total = [f['word_total_scores'] for f in features]
+            
+            # Validate data
+            if not all(len(acc) == len(stress) == len(total) 
+                      for acc, stress, total in zip(word_accuracy, word_stress, word_total)):
+                raise ValueError("Word-level scores have inconsistent lengths")
+            
+            # Find max word sequence length
+            max_word_len = max(len(scores) for scores in word_accuracy) if word_accuracy else 1
+            
+            # Pad sequences
+            padded_word_accuracy = []
+            padded_word_stress = []
+            padded_word_total = []
+            
+            for acc, stress, total in zip(word_accuracy, word_stress, word_total):
+                padded_acc = acc + [0] * (max_word_len - len(acc))
+                padded_stress = stress + [0] * (max_word_len - len(stress))
+                padded_total = total + [0] * (max_word_len - len(total))
                 
-                # Find max word sequence length
-                max_word_len = max(len(scores) for scores in word_accuracy) if word_accuracy else 1
-                
-                # Pad sequences
-                padded_word_accuracy = []
-                padded_word_stress = []
-                padded_word_total = []
-                
-                for acc, stress, total in zip(word_accuracy, word_stress, word_total):
-                    padded_acc = acc + [0] * (max_word_len - len(acc))
-                    padded_stress = stress + [0] * (max_word_len - len(stress))
-                    padded_total = total + [0] * (max_word_len - len(total))
-                    
-                    padded_word_accuracy.append(padded_acc)
-                    padded_word_stress.append(padded_stress)
-                    padded_word_total.append(padded_total)
-                
-                pronunciation_targets['word_level'] = {
-                    'accuracy': torch.tensor(padded_word_accuracy, dtype=torch.float),
-                    'stress': torch.tensor(padded_word_stress, dtype=torch.float),
-                    'total': torch.tensor(padded_word_total, dtype=torch.float)
-                }
-            except Exception as e:
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Error processing word-level targets: {e}")
-                pronunciation_targets['word_level'] = {}
+                padded_word_accuracy.append(padded_acc)
+                padded_word_stress.append(padded_stress)
+                padded_word_total.append(padded_total)
+            
+            pronunciation_targets['word_level'] = {
+                'accuracy': torch.tensor(padded_word_accuracy, dtype=torch.float),
+                'stress': torch.tensor(padded_word_stress, dtype=torch.float),
+                'total': torch.tensor(padded_word_total, dtype=torch.float)
+            }
         
         # Process phone-level targets
         if 'phone_accuracy_scores' in features[0]:
-            try:
-                phone_accuracy = [f['phone_accuracy_scores'] for f in features]
-                
-                # Find max phone sequence length
-                max_phone_len = max(len(scores) for scores in phone_accuracy) if phone_accuracy else 1
-                
-                # Pad sequences
-                padded_phone_accuracy = []
-                for acc in phone_accuracy:
-                    padded_acc = acc + [0] * (max_phone_len - len(acc))
-                    padded_phone_accuracy.append(padded_acc)
-                
-                pronunciation_targets['phone_level'] = {
-                    'accuracy': torch.tensor(padded_phone_accuracy, dtype=torch.float)
-                }
-            except Exception as e:
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Error processing phone-level targets: {e}")
-                pronunciation_targets['phone_level'] = {}
+            phone_accuracy = [f['phone_accuracy_scores'] for f in features]
+            
+            # Find max phone sequence length
+            max_phone_len = max(len(scores) for scores in phone_accuracy) if phone_accuracy else 1
+            
+            # Pad sequences
+            padded_phone_accuracy = []
+            for acc in phone_accuracy:
+                padded_acc = acc + [0] * (max_phone_len - len(acc))
+                padded_phone_accuracy.append(padded_acc)
+            
+            pronunciation_targets['phone_level'] = {
+                'accuracy': torch.tensor(padded_phone_accuracy, dtype=torch.float)
+            }
         
         # Process utterance-level targets
         utterance_scores = ['accuracy', 'fluency', 'prosodic', 'completeness', 'total']
         for score_type in utterance_scores:
             if score_type in features[0]:
-                try:
-                    scores = [f[score_type] for f in features]
-                    pronunciation_targets['utterance_level'][score_type] = torch.tensor(scores, dtype=torch.float)
-                except Exception as e:
-                    logger = logging.getLogger(__name__)
-                    logger.warning(f"Error processing utterance-level {score_type}: {e}")
+                scores = [f[score_type] for f in features]
+                pronunciation_targets['utterance_level'][score_type] = torch.tensor(scores, dtype=torch.float)
         
         batch["pronunciation_targets"] = pronunciation_targets
         
@@ -327,14 +305,32 @@ class SpeechOcean762PronunciationProcessor:
         Returns:
             Tuple of (accuracy_scores, stress_scores, total_scores)
         """
+        if not isinstance(words_data, list):
+            raise ValueError(f"Expected list for words_data, got {type(words_data)}")
+        
         accuracy_scores = []
         stress_scores = []
         total_scores = []
         
-        for word in words_data:
-            accuracy_scores.append(float(word.get('accuracy', 0)))
-            stress_scores.append(float(word.get('stress', 0)))
-            total_scores.append(float(word.get('total', 0)))
+        for i, word in enumerate(words_data):
+            if not isinstance(word, dict):
+                raise ValueError(f"Word {i} is not a dictionary: {type(word)}")
+            
+            # Extract scores with validation
+            accuracy = word.get('accuracy')
+            stress = word.get('stress') 
+            total = word.get('total')
+            
+            if accuracy is None:
+                raise ValueError(f"Missing 'accuracy' score for word {i}")
+            if stress is None:
+                raise ValueError(f"Missing 'stress' score for word {i}")
+            if total is None:
+                raise ValueError(f"Missing 'total' score for word {i}")
+            
+            accuracy_scores.append(float(accuracy))
+            stress_scores.append(float(stress))
+            total_scores.append(float(total))
         
         return accuracy_scores, stress_scores, total_scores
     
@@ -348,12 +344,25 @@ class SpeechOcean762PronunciationProcessor:
         Returns:
             List of phone-level accuracy scores
         """
+        if not isinstance(words_data, list):
+            raise ValueError(f"Expected list for words_data, got {type(words_data)}")
+        
         phone_scores = []
         
-        for word in words_data:
+        for i, word in enumerate(words_data):
+            if not isinstance(word, dict):
+                raise ValueError(f"Word {i} is not a dictionary: {type(word)}")
+            
             if 'phones-accuracy' in word:
                 phone_accuracies = word['phones-accuracy']
-                phone_scores.extend([float(score) for score in phone_accuracies])
+                if not isinstance(phone_accuracies, list):
+                    raise ValueError(f"Expected list for phones-accuracy in word {i}, got {type(phone_accuracies)}")
+                
+                for j, score in enumerate(phone_accuracies):
+                    try:
+                        phone_scores.append(float(score))
+                    except (ValueError, TypeError) as e:
+                        raise ValueError(f"Invalid phone accuracy score at word {i}, phone {j}: {score}") from e
         
         return phone_scores
     
@@ -378,57 +387,43 @@ class SpeechOcean762PronunciationProcessor:
             """Preprocess a batch of examples."""
             batch_size = len(examples["audio"]) if "audio" in examples else len(examples["text"])
             
-            # Process audio with error handling
+            # Process audio - ensure we handle real audio data properly
             audio_arrays = []
             for i in range(batch_size):
-                try:
-                    if "audio" in examples:
-                        audio = examples["audio"][i]
-                        if isinstance(audio, dict) and "array" in audio:
-                            audio_array = np.array(audio["array"])
-                            sampling_rate = audio.get("sampling_rate", 16000)
-                        else:
-                            # Handle other audio formats or create dummy
-                            logger.warning(f"Unexpected audio format for sample {i}, using dummy audio")
-                            audio_array = np.zeros(int(16000 * 2.0))  # 2 seconds of silence
-                            sampling_rate = 16000
+                if "audio" in examples:
+                    audio = examples["audio"][i]
+                    if isinstance(audio, dict) and "array" in audio:
+                        audio_array = np.array(audio["array"], dtype=np.float32)
+                        sampling_rate = audio.get("sampling_rate", 16000)
+                        
+                        # Validate audio data
+                        if len(audio_array) == 0:
+                            raise ValueError(f"Empty audio array for sample {i}")
+                        
+                        # Preprocess audio
+                        processed_audio = self.preprocess_audio(audio_array, sampling_rate)
+                        audio_arrays.append(processed_audio)
                     else:
-                        # No audio available, create dummy
-                        logger.warning(f"No audio data for sample {i}, using dummy audio")
-                        audio_array = np.zeros(int(16000 * 2.0))  # 2 seconds of silence
-                        sampling_rate = 16000
-                    
-                    # Preprocess audio
-                    processed_audio = self.preprocess_audio(audio_array, sampling_rate)
-                    audio_arrays.append(processed_audio)
-                    
-                except Exception as e:
-                    logger.warning(f"Error processing audio for sample {i}: {e}")
-                    # Create dummy audio as fallback
-                    dummy_audio = np.zeros(int(self.sampling_rate * 2.0))  # 2 seconds of silence
-                    audio_arrays.append(dummy_audio)
+                        raise ValueError(f"Invalid audio format for sample {i}: expected dict with 'array' key")
+                else:
+                    raise ValueError("No audio data found in examples")
             
-            # Extract features
-            try:
-                inputs = self.feature_extractor(
-                    audio_arrays,
-                    sampling_rate=self.sampling_rate,
-                    return_tensors="np"
-                )
-                
-                batch = {
-                    "input_features": inputs.input_features,
-                }
-            except Exception as e:
-                logger.error(f"Error extracting features: {e}")
-                # Create dummy features as fallback
-                dummy_features = np.zeros((batch_size, 80, 3000))  # Whisper feature shape
-                batch = {
-                    "input_features": dummy_features,
-                }
+            # Extract features using Whisper feature extractor
+            inputs = self.feature_extractor(
+                audio_arrays,
+                sampling_rate=self.sampling_rate,
+                return_tensors="np"
+            )
+            
+            batch = {
+                "input_features": inputs.input_features,
+            }
             
             # Add transcription data if requested
             if include_transcription:
+                if "text" not in examples:
+                    raise ValueError("Transcription requested but no 'text' field found")
+                
                 transcriptions = examples["text"]
                 labels = self.tokenizer(
                     transcriptions,
@@ -440,13 +435,19 @@ class SpeechOcean762PronunciationProcessor:
                 batch["transcription"] = transcriptions
             
             # Extract pronunciation scores
+            if "words" not in examples:
+                raise ValueError("No 'words' field found for pronunciation scores")
+            
             word_accuracy_scores = []
             word_stress_scores = []
             word_total_scores = []
             phone_accuracy_scores = []
             
             for i in range(batch_size):
-                words_data = examples["words"][i] if "words" in examples else []
+                words_data = examples["words"][i]
+                
+                if not isinstance(words_data, list):
+                    raise ValueError(f"Invalid words data format for sample {i}: expected list")
                 
                 # Word-level scores
                 w_acc, w_stress, w_total = self.extract_word_level_scores(words_data)
@@ -471,6 +472,8 @@ class SpeechOcean762PronunciationProcessor:
             for score_type in utterance_scores:
                 if score_type in examples:
                     batch[score_type] = examples[score_type]
+                else:
+                    logger.warning(f"Missing utterance-level score: {score_type}")
             
             # Add metadata
             batch.update({
@@ -486,84 +489,18 @@ class SpeechOcean762PronunciationProcessor:
         for split_name, dataset in datasets.items():
             logger.info(f"Processing {split_name} split...")
             
-            try:
-                processed_dataset = dataset.map(
-                    preprocess_function,
-                    batched=True,
-                    batch_size=10,  # Smaller batch size to avoid issues
-                    remove_columns=dataset.column_names,
-                    desc=f"Preprocessing {split_name}",
-                    load_from_cache_file=False,  # Disable caching
-                    num_proc=1  # Single process to avoid issues
-                )
-                
-                processed_datasets[split_name] = processed_dataset
-                logger.info(f"Processed {split_name}: {len(processed_dataset)} samples")
-                
-            except Exception as e:
-                logger.error(f"Error processing {split_name}: {e}")
-                logger.info("Creating minimal dataset for testing...")
-                
-                # Create a minimal synthetic dataset
-                synthetic_samples = []
-                num_samples = min(50, len(dataset))  # Limit to 50 samples
-                
-                for i in range(num_samples):
-                    try:
-                        # Get non-audio data safely
-                        sample_data = dataset.select([i]).to_dict()
-                        
-                        synthetic_sample = {
-                            "input_features": np.zeros((80, 3000)),  # Dummy Whisper features
-                        }
-                        
-                        # Add transcription if available
-                        if include_transcription and 'text' in sample_data:
-                            text = sample_data['text'][0]
-                            labels = self.tokenizer(text, return_tensors="np", truncation=True)
-                            synthetic_sample["labels"] = labels.input_ids[0]
-                            synthetic_sample["transcription"] = text
-                        
-                        # Add scores if available
-                        for score_type in ['accuracy', 'fluency', 'prosodic', 'completeness', 'total']:
-                            if score_type in sample_data:
-                                synthetic_sample[score_type] = sample_data[score_type][0]
-                        
-                        # Add dummy word/phone scores
-                        synthetic_sample.update({
-                            "word_accuracy_scores": [8.0, 7.0, 9.0],  # Dummy word scores
-                            "word_stress_scores": [9.0, 8.0, 10.0],
-                            "word_total_scores": [8.0, 7.0, 9.0],
-                            "phone_accuracy_scores": [1.8, 1.6, 2.0, 1.9],  # Dummy phone scores
-                        })
-                        
-                        synthetic_samples.append(synthetic_sample)
-                        
-                    except Exception as sample_error:
-                        logger.warning(f"Error creating synthetic sample {i}: {sample_error}")
-                        continue
-                
-                # Convert to dataset
-                from datasets import Dataset
-                if synthetic_samples:
-                    processed_dataset = Dataset.from_list(synthetic_samples)
-                    logger.info(f"Created synthetic {split_name}: {len(processed_dataset)} samples")
-                else:
-                    # Last resort: create minimal dummy dataset
-                    dummy_sample = {
-                        "input_features": np.zeros((80, 3000)),
-                        "accuracy": 8.0, "fluency": 8.0, "prosodic": 8.0, "completeness": 10.0, "total": 8.0,
-                        "word_accuracy_scores": [8.0], "word_stress_scores": [9.0], "word_total_scores": [8.0],
-                        "phone_accuracy_scores": [1.8]
-                    }
-                    if include_transcription:
-                        dummy_sample["labels"] = np.array([50257, 50362, 50363])  # Dummy tokens
-                        dummy_sample["transcription"] = "test phrase"
-                    
-                    processed_dataset = Dataset.from_list([dummy_sample] * 10)
-                    logger.warning(f"Created minimal dummy {split_name}: {len(processed_dataset)} samples")
-                
-                processed_datasets[split_name] = processed_dataset
+            processed_dataset = dataset.map(
+                preprocess_function,
+                batched=True,
+                batch_size=8,  # Reasonable batch size
+                remove_columns=dataset.column_names,
+                desc=f"Preprocessing {split_name}",
+                load_from_cache_file=False,  # Disable caching for debugging
+                num_proc=1  # Single process to avoid multiprocessing issues
+            )
+            
+            processed_datasets[split_name] = processed_dataset
+            logger.info(f"Successfully processed {split_name}: {len(processed_dataset)} samples")
         
         return DatasetDict(processed_datasets)
     
