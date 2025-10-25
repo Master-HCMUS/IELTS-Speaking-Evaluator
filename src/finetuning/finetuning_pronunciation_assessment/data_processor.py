@@ -184,7 +184,7 @@ class SpeechOcean762DataProcessor:
             
             return result
         
-        # Process each split - CRITICAL: num_proc=1 for Kaggle
+        # Process each split - CRITICAL: num_proc=None to disable multiprocessing for Kaggle
         processed_datasets = {}
         
         for split_name, split_data in datasets.items():
@@ -195,7 +195,7 @@ class SpeechOcean762DataProcessor:
                     preprocess_function,
                     batched=True,
                     batch_size=batch_size,
-                    num_proc=1,  # CRITICAL for Kaggle - avoid multiprocessing codec issues
+                    num_proc=None,  # CRITICAL for Kaggle - disable multiprocessing to avoid codec issues
                     remove_columns=["audio"],  # Remove after processing
                     desc=f"Processing {split_name}"
                 )
