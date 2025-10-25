@@ -1,0 +1,20 @@
+{
+  "mode": "quick-test",
+  "timestamp": "2025-10-25T23:59:58.586756",
+  "model": "openai/whisper-tiny",
+  "epochs_trained": 1,
+  "batch_size": 2,
+  "learning_rate": 0.0001,
+  "loss_weights": {
+    "asr": 1.0,
+    "word_accuracy": 1.0,
+    "word_stress": 0.5,
+    "word_total": 1.0,
+    "utterance_accuracy": 1.0,
+    "utterance_fluency": 1.0,
+    "utterance_prosodic": 1.0,
+    "utterance_completeness": 0.1,
+    "utterance_total": 1.0
+  },
+  "best_validation_loss": null
+}

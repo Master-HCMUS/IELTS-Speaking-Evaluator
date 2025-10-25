@@ -1,317 +1,226 @@
 """
-Training configuration for pronunciation assessment fine-tuning.
+Training configuration for Whisper pronunciation assessment fine-tuning.
 
-This module provides configuration classes for training Whisper models with
-pronunciation assessment capabilities, including multi-objective loss settings
-and assessment-specific hyperparameters.
+Supports multiple training modes with predefined configurations:
+- Quick Test: Fast iteration and debugging
+- Development: Experimentation with reasonable dataset size
+- Production: Full training on complete dataset
+- Specialized: Transcription-only, assessment-only, phone-focused modes
 """
 
-import json
-from dataclasses import dataclass, field, asdict
-from typing import Dict, Any, Optional, List
-from pathlib import Path
-import torch
+from dataclasses import dataclass, field
+from typing import Dict, Optional
 
 
 @dataclass
 class PronunciationTrainingConfig:
-    """
-    Configuration class for pronunciation assessment training.
-    
-    This configuration handles both ASR and pronunciation assessment training
-    parameters, including loss weights and granularity settings.
-    """
+    """Configuration for pronunciation assessment training."""
     
     # Model configuration
     whisper_model_name: str = "openai/whisper-tiny"
-    assessment_dropout: float = 0.1
-    freeze_whisper_layers: int = 0
+    output_dir: str = "models/pronunciation_development"
     
-    # Training data configuration
-    train_split: str = "train"
-    eval_split: str = "test"
-    max_train_samples: Optional[int] = None
-    max_eval_samples: Optional[int] = None
-    include_transcription: bool = True  # Include ASR training
+    # Dataset configuration
+    max_train_samples: Optional[int] = 1000
+    max_eval_samples: Optional[int] = 200
     
-    # Audio preprocessing
+    # Training hyperparameters
+    batch_size: int = 4
+    eval_batch_size: int = 8
+    num_epochs: int = 3
+    learning_rate: float = 1e-5
+    warmup_steps: int = 500
+    weight_decay: float = 0.01
+    gradient_accumulation_steps: int = 1
+    
+    # Audio configuration
     sampling_rate: int = 16000
     max_audio_length: float = 30.0
-    normalize_audio: bool = True
-    
-    # Training parameters
-    output_dir: str = "whisper_pronunciation_assessment"
-    batch_size: int = 8
-    eval_batch_size: int = 16
-    num_epochs: int = 5
-    learning_rate: float = 1e-5
-    weight_decay: float = 0.01
-    warmup_steps: int = 500
-    
-    # Gradient and optimization
-    gradient_accumulation_steps: int = 1
-    max_grad_norm: float = 1.0
-    optimizer: str = "adamw"
-    lr_scheduler: str = "linear"
-    
-    # Evaluation and saving
-    eval_steps: int = 500
-    save_steps: int = 1000
-    logging_steps: int = 50
-    save_total_limit: int = 3
-    load_best_model_at_end: bool = True
-    metric_for_best_model: str = "eval_total_loss"
-    greater_is_better: bool = False
-    
-    # Multi-objective loss weights
-    loss_weights: Dict[str, float] = field(default_factory=lambda: {
-        'asr': 1.0,                    # ASR (transcription) loss
-        'word_accuracy': 1.0,          # Word-level accuracy
-        'word_stress': 0.5,            # Word-level stress (lower weight)
-        'word_total': 1.0,             # Word-level total score
-        'phone_accuracy': 1.0,         # Phone-level accuracy
-        'utterance_accuracy': 1.0,     # Utterance-level accuracy
-        'utterance_fluency': 1.0,      # Utterance-level fluency
-        'utterance_prosodic': 1.0,     # Utterance-level prosodic
-        'utterance_completeness': 0.1, # Lower weight (99.6% is 10)
-        'utterance_total': 1.0         # Utterance-level total
-    })
     
     # Training granularities
     train_word_level: bool = True
     train_phone_level: bool = True
     train_utterance_level: bool = True
+    include_transcription: bool = True
     
-    # Hardware and performance
-    use_cuda: bool = True
-    fp16: bool = True
-    dataloader_num_workers: int = 0
+    # Aliases for trainer compatibility
+    @property
+    def use_word_level_assessment(self) -> bool:
+        return self.train_word_level
     
-    # Whisper-specific parameters
-    forced_decoder_ids: Optional[List] = None
-    suppress_tokens: Optional[List] = None
+    @property
+    def use_phone_level_assessment(self) -> bool:
+        return self.train_phone_level
     
-    # Experiment tracking
-    run_name: Optional[str] = None
-    cache_dir: Optional[str] = None
+    @property
+    def use_utterance_level_assessment(self) -> bool:
+        return self.train_utterance_level
+    
+    # Loss weights for multi-objective training
+    loss_weights: Dict[str, float] = field(default_factory=lambda: {
+        'asr': 1.0,                    # Transcription loss
+        'word_accuracy': 1.0,          # Word-level accuracy
+        'word_stress': 0.5,            # Word-level stress
+        'word_total': 1.0,             # Word-level total
+        'phone_accuracy': 1.0,         # Phone-level accuracy
+        'utterance_accuracy': 1.0,     # Utterance accuracy
+        'utterance_fluency': 1.0,      # Utterance fluency
+        'utterance_prosodic': 1.0,     # Utterance prosodic
+        'utterance_completeness': 0.1, # Lower weight (99.6% is 10)
+        'utterance_total': 1.0         # Utterance total
+    })
+    
+    # Optimization
+    save_steps: int = 500
+    logging_steps: int = 100
+    eval_steps: int = 500
+    warmup_ratio: float = 0.1  # 10% of total steps for warmup
+    
+    # Device configuration
+    device: str = "cuda"
+    seed: int = 42
     
     def __post_init__(self):
-        """Post-initialization processing."""
-        # Set default run name if not provided
-        if self.run_name is None:
-            import datetime
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            model_short = self.whisper_model_name.split("/")[-1]
-            self.run_name = f"{model_short}_pronunciation_{timestamp}"
-        
-        # Validate loss weights
-        self._validate_loss_weights()
-        
-        # Set CUDA availability
-        if self.use_cuda and not torch.cuda.is_available():
-            print("Warning: CUDA not available, falling back to CPU")
-            self.use_cuda = False
-            self.fp16 = False
-    
-    def _validate_loss_weights(self):
-        """Validate and adjust loss weights based on training granularities."""
-        if not self.train_word_level:
-            # Remove word-level loss weights
-            word_keys = [k for k in self.loss_weights.keys() if k.startswith('word_')]
-            for key in word_keys:
-                self.loss_weights.pop(key, None)
-        
-        if not self.train_phone_level:
-            # Remove phone-level loss weights
-            phone_keys = [k for k in self.loss_weights.keys() if k.startswith('phone_')]
-            for key in phone_keys:
-                self.loss_weights.pop(key, None)
-        
-        if not self.train_utterance_level:
-            # Remove utterance-level loss weights
-            utterance_keys = [k for k in self.loss_weights.keys() if k.startswith('utterance_')]
-            for key in utterance_keys:
-                self.loss_weights.pop(key, None)
-        
-        if not self.include_transcription:
-            # Remove ASR loss weight
-            self.loss_weights.pop('asr', None)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert configuration to dictionary."""
-        return asdict(self)
-    
-    def save(self, file_path: str):
-        """Save configuration to JSON file."""
-        config_dict = self.to_dict()
-        
-        with open(file_path, 'w') as f:
-            json.dump(config_dict, f, indent=2, default=str)
-    
-    @classmethod
-    def load(cls, file_path: str) -> 'PronunciationTrainingConfig':
-        """Load configuration from JSON file."""
-        with open(file_path, 'r') as f:
-            config_dict = json.load(f)
-        
-        return cls(**config_dict)
-    
-    def get_device(self) -> torch.device:
-        """Get the training device."""
-        if self.use_cuda and torch.cuda.is_available():
-            return torch.device("cuda")
-        else:
-            return torch.device("cpu")
-    
-    def print_config(self):
-        """Print configuration summary."""
-        print("Pronunciation Assessment Training Configuration")
-        print("=" * 50)
-        print(f"Model: {self.whisper_model_name}")
-        print(f"Output Directory: {self.output_dir}")
-        print(f"Training Granularities:")
-        print(f"  - Word-level: {self.train_word_level}")
-        print(f"  - Phone-level: {self.train_phone_level}")
-        print(f"  - Utterance-level: {self.train_utterance_level}")
-        print(f"  - Include Transcription: {self.include_transcription}")
-        print(f"Training Parameters:")
-        print(f"  - Epochs: {self.num_epochs}")
-        print(f"  - Batch Size: {self.batch_size}")
-        print(f"  - Learning Rate: {self.learning_rate}")
-        print(f"  - Max Train Samples: {self.max_train_samples or 'All'}")
-        print(f"  - Max Eval Samples: {self.max_eval_samples or 'All'}")
-        print(f"Loss Weights:")
-        for loss_name, weight in self.loss_weights.items():
-            print(f"  - {loss_name}: {weight}")
-        print(f"Device: {self.get_device()}")
-        print("=" * 50)
+        """Validate configuration after initialization."""
+        if self.batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+        if self.num_epochs <= 0:
+            raise ValueError("num_epochs must be positive")
+        if self.learning_rate <= 0:
+            raise ValueError("learning_rate must be positive")
 
-
-# Preset configurations for different use cases
 
 def get_quick_test_config() -> PronunciationTrainingConfig:
-    """Configuration for quick testing with minimal data."""
+    """Get configuration for quick test mode."""
     return PronunciationTrainingConfig(
         whisper_model_name="openai/whisper-tiny",
-        output_dir="pronunciation_quick_test",
+        output_dir="models/pronunciation_quick_test",
         max_train_samples=100,
         max_eval_samples=50,
+        batch_size=2,
         num_epochs=1,
-        batch_size=4,
-        eval_steps=25,
-        save_steps=50,
-        logging_steps=10,
-        warmup_steps=10,
-        # Reduce assessment complexity for quick test
-        train_phone_level=False,
+        learning_rate=1e-4,
+        train_phone_level=False,  # Skip phone level for speed
         loss_weights={
             'asr': 1.0,
             'word_accuracy': 1.0,
+            'word_stress': 0.5,
             'word_total': 1.0,
             'utterance_accuracy': 1.0,
+            'utterance_fluency': 1.0,
+            'utterance_prosodic': 1.0,
+            'utterance_completeness': 0.1,
             'utterance_total': 1.0
         }
     )
 
 
 def get_development_config() -> PronunciationTrainingConfig:
-    """Configuration for development with moderate data."""
+    """Get configuration for development mode."""
     return PronunciationTrainingConfig(
         whisper_model_name="openai/whisper-tiny",
-        output_dir="pronunciation_development",
+        output_dir="models/pronunciation_development",
         max_train_samples=1000,
         max_eval_samples=200,
+        batch_size=4,
         num_epochs=3,
-        batch_size=8,
-        eval_steps=100,
-        save_steps=200,
-        logging_steps=20,
-        warmup_steps=100,
-        # Include all granularities
-        train_word_level=True,
-        train_phone_level=True,
-        train_utterance_level=True,
-        include_transcription=True
-    )
-
-
-def get_production_config() -> PronunciationTrainingConfig:
-    """Configuration for production training with full dataset."""
-    return PronunciationTrainingConfig(
-        whisper_model_name="openai/whisper-base",
-        output_dir="pronunciation_production",
-        max_train_samples=None,  # Use all data
-        max_eval_samples=None,   # Use all data
-        num_epochs=10,           # Increased for better convergence
-        batch_size=12,           # Slightly reduced for stability
-        eval_batch_size=24,      # Proportionally adjusted
-        learning_rate=3e-6,      # Lower for stable long training
-        weight_decay=0.005,      # Reduced weight decay
-        warmup_steps=2000,       # Longer warmup for large training
-        eval_steps=250,          # More frequent evaluation
-        save_steps=500,          # More frequent saving
-        logging_steps=25,        # More frequent logging
-        gradient_accumulation_steps=4,  # Better gradient estimates
-        max_grad_norm=0.5,       # Stricter gradient clipping
-        lr_scheduler="cosine",   # Better for long training
-        save_total_limit=5,      # Keep more checkpoints
-        # Full multi-granularity training
+        learning_rate=1e-5,
         train_word_level=True,
         train_phone_level=True,
         train_utterance_level=True,
         include_transcription=True,
-        # Optimized loss weights for long training
         loss_weights={
-            'asr': 0.7,                    # Balanced ASR weight
+            'asr': 1.0,
             'word_accuracy': 1.0,
-            'word_stress': 0.4,            # Slightly reduced
+            'word_stress': 0.5,
             'word_total': 1.0,
-            'phone_accuracy': 1.5,         # Higher emphasis on phones
-            'utterance_accuracy': 1.2,     # Increased utterance focus
+            'phone_accuracy': 1.0,
+            'utterance_accuracy': 1.0,
             'utterance_fluency': 1.0,
-            'utterance_prosodic': 0.8,     # Slightly reduced
-            'utterance_completeness': 0.1, # Keep low (most samples are 10)
-            'utterance_total': 1.3         # Higher total score emphasis
+            'utterance_prosodic': 1.0,
+            'utterance_completeness': 0.1,
+            'utterance_total': 1.0
+        }
+    )
+
+
+def get_production_config() -> PronunciationTrainingConfig:
+    """Get configuration for production mode."""
+    return PronunciationTrainingConfig(
+        whisper_model_name="openai/whisper",
+        output_dir="models/pronunciation_production",
+        max_train_samples=None,  # Use full dataset
+        max_eval_samples=None,
+        batch_size=8,
+        eval_batch_size=16,
+        num_epochs=5,
+        learning_rate=5e-6,
+        warmup_steps=1000,
+        gradient_accumulation_steps=2,
+        train_word_level=True,
+        train_phone_level=True,
+        train_utterance_level=True,
+        include_transcription=True,
+        loss_weights={
+            'asr': 1.0,
+            'word_accuracy': 1.2,
+            'word_stress': 0.6,
+            'word_total': 1.0,
+            'phone_accuracy': 1.2,
+            'utterance_accuracy': 1.0,
+            'utterance_fluency': 1.0,
+            'utterance_prosodic': 1.0,
+            'utterance_completeness': 0.1,
+            'utterance_total': 1.0
         }
     )
 
 
 def get_transcription_only_config() -> PronunciationTrainingConfig:
-    """Configuration for transcription-only training (ASR baseline)."""
+    """Get configuration for transcription-only baseline."""
     return PronunciationTrainingConfig(
         whisper_model_name="openai/whisper-tiny",
-        output_dir="pronunciation_asr_only",
+        output_dir="models/pronunciation_transcription_only",
         max_train_samples=1000,
         max_eval_samples=200,
+        batch_size=4,
         num_epochs=3,
-        batch_size=16,
-        # Only transcription training
+        learning_rate=1e-5,
         train_word_level=False,
         train_phone_level=False,
         train_utterance_level=False,
         include_transcription=True,
         loss_weights={
-            'asr': 1.0  # Only ASR loss
+            'asr': 1.0,
+            'word_accuracy': 0.0,
+            'word_stress': 0.0,
+            'word_total': 0.0,
+            'phone_accuracy': 0.0,
+            'utterance_accuracy': 0.0,
+            'utterance_fluency': 0.0,
+            'utterance_prosodic': 0.0,
+            'utterance_completeness': 0.0,
+            'utterance_total': 0.0
         }
     )
 
 
 def get_assessment_only_config() -> PronunciationTrainingConfig:
-    """Configuration for assessment-only training (no transcription)."""
+    """Get configuration for assessment-only training."""
     return PronunciationTrainingConfig(
         whisper_model_name="openai/whisper-tiny",
-        output_dir="pronunciation_assessment_only",
+        output_dir="models/pronunciation_assessment_only",
         max_train_samples=1000,
         max_eval_samples=200,
-        num_epochs=5,
-        batch_size=8,
-        # Only assessment training
+        batch_size=4,
+        num_epochs=3,
+        learning_rate=1e-5,
         train_word_level=True,
         train_phone_level=True,
         train_utterance_level=True,
-        include_transcription=False,  # No ASR training
-        freeze_whisper_layers=4,      # Freeze more layers since no ASR
+        include_transcription=False,
         loss_weights={
+            'asr': 0.0,
             'word_accuracy': 1.0,
             'word_stress': 0.5,
             'word_total': 1.0,
@@ -326,25 +235,62 @@ def get_assessment_only_config() -> PronunciationTrainingConfig:
 
 
 def get_phone_focused_config() -> PronunciationTrainingConfig:
-    """Configuration focused on phone-level assessment."""
+    """Get configuration for phone-focused training."""
     return PronunciationTrainingConfig(
         whisper_model_name="openai/whisper-tiny",
-        output_dir="pronunciation_phone_focused",
+        output_dir="models/pronunciation_phone_focused",
         max_train_samples=1000,
         max_eval_samples=200,
-        num_epochs=4,
-        batch_size=8,
-        # Focus on phone-level
+        batch_size=4,
+        num_epochs=3,
+        learning_rate=1e-5,
         train_word_level=True,
         train_phone_level=True,
         train_utterance_level=True,
         include_transcription=True,
         loss_weights={
-            'asr': 0.5,                    # Lower ASR weight
-            'word_accuracy': 0.8,          # Lower word weight
+            'asr': 0.8,
+            'word_accuracy': 0.8,
+            'word_stress': 0.4,
             'word_total': 0.8,
-            'phone_accuracy': 2.0,         # High phone weight
-            'utterance_accuracy': 1.0,
-            'utterance_total': 1.0
+            'phone_accuracy': 1.5,  # Higher weight for phones
+            'utterance_accuracy': 0.8,
+            'utterance_fluency': 0.8,
+            'utterance_prosodic': 0.8,
+            'utterance_completeness': 0.1,
+            'utterance_total': 0.8
         }
     )
+
+
+# Mapping of mode names to config getters
+TRAINING_MODES = {
+    'quick-test': get_quick_test_config,
+    'development': get_development_config,
+    'production': get_production_config,
+    'transcription-only': get_transcription_only_config,
+    'assessment-only': get_assessment_only_config,
+    'phone-focused': get_phone_focused_config,
+}
+
+
+def get_config(mode: str = 'development') -> PronunciationTrainingConfig:
+    """
+    Get training configuration by mode name.
+    
+    Args:
+        mode: Training mode name
+        
+    Returns:
+        PronunciationTrainingConfig instance
+        
+    Raises:
+        ValueError: If mode is not recognized
+    """
+    if mode not in TRAINING_MODES:
+        raise ValueError(
+            f"Unknown training mode '{mode}'. "
+            f"Available modes: {', '.join(TRAINING_MODES.keys())}"
+        )
+    
+    return TRAINING_MODES[mode]()
