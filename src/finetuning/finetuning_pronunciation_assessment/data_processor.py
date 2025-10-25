@@ -383,122 +383,124 @@ class SpeechOcean762PronunciationProcessor:
         """
         logger.info("Preparing datasets for pronunciation assessment training...")
         
-        def preprocess_function(examples):
-            """Preprocess a batch of examples."""
-            batch_size = len(examples["audio"]) if "audio" in examples else len(examples["text"])
+        def preprocess_single_example(example):
+            """Preprocess a single example to avoid multiprocessing audio issues."""
+            import os
+            os.environ["DATASETS_DISABLE_TORCHCODEC"] = "1"
             
-            # Process audio - ensure we handle real audio data properly
-            audio_arrays = []
-            for i in range(batch_size):
-                if "audio" in examples:
-                    audio = examples["audio"][i]
-                    if isinstance(audio, dict) and "array" in audio:
-                        audio_array = np.array(audio["array"], dtype=np.float32)
-                        sampling_rate = audio.get("sampling_rate", 16000)
-                        
-                        # Validate audio data
-                        if len(audio_array) == 0:
-                            raise ValueError(f"Empty audio array for sample {i}")
-                        
-                        # Preprocess audio
-                        processed_audio = self.preprocess_audio(audio_array, sampling_rate)
-                        audio_arrays.append(processed_audio)
+            # Process audio 
+            if "audio" in example:
+                audio_data = example["audio"]
+                
+                # Handle different audio formats
+                if isinstance(audio_data, dict):
+                    if "array" in audio_data:
+                        audio_array = np.array(audio_data["array"], dtype=np.float32)
+                        sampling_rate = audio_data.get("sampling_rate", 16000)
+                    elif "path" in audio_data:
+                        # Load audio using librosa
+                        audio_array, sampling_rate = librosa.load(audio_data["path"], sr=None)
+                    elif "bytes" in audio_data:
+                        # Load from bytes
+                        import io
+                        audio_array, sampling_rate = librosa.load(io.BytesIO(audio_data["bytes"]), sr=None)
                     else:
-                        raise ValueError(f"Invalid audio format for sample {i}: expected dict with 'array' key")
+                        raise ValueError(f"Unknown audio format: {audio_data.keys()}")
                 else:
-                    raise ValueError("No audio data found in examples")
+                    raise ValueError(f"Invalid audio format: expected dict, got {type(audio_data)}")
+                
+                # Validate audio data
+                if len(audio_array) == 0:
+                    raise ValueError("Empty audio array")
+                
+                # Preprocess audio
+                processed_audio = self.preprocess_audio(audio_array, sampling_rate)
+            else:
+                raise ValueError("No audio data found")
             
             # Extract features using Whisper feature extractor
             inputs = self.feature_extractor(
-                audio_arrays,
+                [processed_audio],  # Single sample
                 sampling_rate=self.sampling_rate,
                 return_tensors="np"
             )
             
-            batch = {
-                "input_features": inputs.input_features,
+            result = {
+                "input_features": inputs.input_features[0],  # Extract single sample
             }
             
             # Add transcription data if requested
             if include_transcription:
-                if "text" not in examples:
+                if "text" not in example:
                     raise ValueError("Transcription requested but no 'text' field found")
                 
-                transcriptions = examples["text"]
+                transcription = example["text"]
                 labels = self.tokenizer(
-                    transcriptions,
+                    transcription,
                     truncation=True,
-                    padding=False,  # Don't pad here, will be done in collator
+                    padding=False,
                     return_tensors="np"
                 )
-                batch["labels"] = labels.input_ids
-                batch["transcription"] = transcriptions
+                result["labels"] = labels.input_ids[0]  # Extract single sample
+                result["transcription"] = transcription
             
             # Extract pronunciation scores
-            if "words" not in examples:
+            if "words" not in example:
                 raise ValueError("No 'words' field found for pronunciation scores")
             
-            word_accuracy_scores = []
-            word_stress_scores = []
-            word_total_scores = []
-            phone_accuracy_scores = []
+            words_data = example["words"]
+            if not isinstance(words_data, list):
+                raise ValueError(f"Invalid words data format: expected list, got {type(words_data)}")
             
-            for i in range(batch_size):
-                words_data = examples["words"][i]
-                
-                if not isinstance(words_data, list):
-                    raise ValueError(f"Invalid words data format for sample {i}: expected list")
-                
-                # Word-level scores
-                w_acc, w_stress, w_total = self.extract_word_level_scores(words_data)
-                word_accuracy_scores.append(w_acc)
-                word_stress_scores.append(w_stress)
-                word_total_scores.append(w_total)
-                
-                # Phone-level scores
-                p_acc = self.extract_phone_level_scores(words_data)
-                phone_accuracy_scores.append(p_acc)
+            # Word-level scores
+            w_acc, w_stress, w_total = self.extract_word_level_scores(words_data)
+            result["word_accuracy_scores"] = w_acc
+            result["word_stress_scores"] = w_stress
+            result["word_total_scores"] = w_total
             
-            # Add word and phone level scores
-            batch.update({
-                "word_accuracy_scores": word_accuracy_scores,
-                "word_stress_scores": word_stress_scores,
-                "word_total_scores": word_total_scores,
-                "phone_accuracy_scores": phone_accuracy_scores,
-            })
+            # Phone-level scores
+            p_acc = self.extract_phone_level_scores(words_data)
+            result["phone_accuracy_scores"] = p_acc
             
             # Add utterance-level scores
             utterance_scores = ['accuracy', 'fluency', 'prosodic', 'completeness', 'total']
             for score_type in utterance_scores:
-                if score_type in examples:
-                    batch[score_type] = examples[score_type]
+                if score_type in example:
+                    result[score_type] = example[score_type]
                 else:
                     logger.warning(f"Missing utterance-level score: {score_type}")
             
             # Add metadata
-            batch.update({
-                "speaker": examples.get("speaker", [None] * batch_size),
-                "gender": examples.get("gender", [None] * batch_size),
-                "age": examples.get("age", [None] * batch_size),
+            result.update({
+                "speaker": example.get("speaker"),
+                "gender": example.get("gender"),
+                "age": example.get("age"),
             })
             
-            return batch
+            return result
         
         # Process each split
         processed_datasets = {}
         for split_name, dataset in datasets.items():
             logger.info(f"Processing {split_name} split...")
             
-            processed_dataset = dataset.map(
-                preprocess_function,
-                batched=True,
-                batch_size=8,  # Reasonable batch size
-                remove_columns=dataset.column_names,
-                desc=f"Preprocessing {split_name}",
-                load_from_cache_file=False,  # Disable caching for debugging
-                num_proc=1  # Single process to avoid multiprocessing issues
-            )
+            # Process samples one by one to avoid multiprocessing audio issues
+            processed_samples = []
+            for i, sample in enumerate(dataset):
+                try:
+                    processed_sample = preprocess_single_example(sample)
+                    processed_samples.append(processed_sample)
+                    
+                    if (i + 1) % 100 == 0:
+                        logger.info(f"Processed {i + 1}/{len(dataset)} samples for {split_name}")
+                        
+                except Exception as e:
+                    logger.error(f"Error processing sample {i} in {split_name}: {e}")
+                    raise  # Re-raise to get proper error handling
             
+            # Convert to dataset
+            from datasets import Dataset
+            processed_dataset = Dataset.from_list(processed_samples)
             processed_datasets[split_name] = processed_dataset
             logger.info(f"Successfully processed {split_name}: {len(processed_dataset)} samples")
         
