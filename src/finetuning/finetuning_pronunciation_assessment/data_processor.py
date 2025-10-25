@@ -38,13 +38,14 @@ class SpeechOcean762DataProcessor:
     def _extract_mel_spectrogram(self, audio_array: np.ndarray, sampling_rate: int) -> np.ndarray:
         """
         Extract mel-spectrogram directly using librosa (no transformers import needed).
+        Pads/truncates to Whisper's expected 3000 time steps.
         
         Args:
             audio_array: Audio waveform
             sampling_rate: Sample rate of audio
             
         Returns:
-            Mel-spectrogram [n_mels, time_steps]
+            Mel-spectrogram [80, 3000] (Whisper format)
         """
         # Resample if necessary
         if sampling_rate != self.TARGET_SAMPLE_RATE:
@@ -65,6 +66,15 @@ class SpeechOcean762DataProcessor:
         
         # Convert to log scale
         mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+        
+        # Pad or truncate to 3000 time steps (Whisper's expected length)
+        if mel_spec_db.shape[1] < 3000:
+            # Pad with silence (log(1e-10) ≈ -100)
+            pad_width = 3000 - mel_spec_db.shape[1]
+            mel_spec_db = np.pad(mel_spec_db, ((0, 0), (0, pad_width)), constant_values=-100.0)
+        else:
+            # Truncate to 3000
+            mel_spec_db = mel_spec_db[:, :3000]
         
         return mel_spec_db.astype(np.float32)
     
