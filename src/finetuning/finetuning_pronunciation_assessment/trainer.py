@@ -49,9 +49,6 @@ class PronunciationAssessmentTrainer:
     
     def setup_optimization(self, total_steps: int):
         """Setup optimizer and learning rate scheduler."""
-        # Delay import to avoid JAX dependency issues on Kaggle
-        from transformers import get_linear_schedule_with_warmup
-        
         # Optimizer
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
@@ -60,13 +57,16 @@ class PronunciationAssessmentTrainer:
             eps=1e-8
         )
         
-        # Learning rate scheduler
+        # Create linear scheduler with warmup (no transformers import needed)
         num_warmup_steps = int(total_steps * self.config.warmup_ratio)
-        self.scheduler = get_linear_schedule_with_warmup(
-            self.optimizer,
-            num_warmup_steps=num_warmup_steps,
-            num_training_steps=total_steps
-        )
+        
+        def lr_lambda(current_step: int):
+            """Linear warmup + linear decay scheduler."""
+            if current_step < num_warmup_steps:
+                return float(current_step) / float(max(1, num_warmup_steps))
+            return max(0.0, float(total_steps - current_step) / float(max(1, total_steps - num_warmup_steps)))
+        
+        self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
         
         logger.info(f"Optimizer: AdamW (lr={self.config.learning_rate})")
         logger.info(f"Scheduler: Linear with warmup ({num_warmup_steps} warmup steps)")

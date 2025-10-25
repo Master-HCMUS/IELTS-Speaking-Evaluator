@@ -21,17 +21,52 @@ class SpeechOcean762DataProcessor:
     Loads and preprocesses SpeechOcean762 dataset for pronunciation assessment finetuning.
     
     CRITICAL: Uses num_proc=1 to avoid multiprocessing codec issues on Kaggle.
+    CRITICAL: Extracts mel-spectrograms directly to avoid WhisperProcessor JAX import.
     """
     
     DATASET_NAME = "mispeech/speechocean762"
     TARGET_SAMPLE_RATE = 16000
+    N_MELS = 80
+    N_FFT = 400
+    HOP_LENGTH = 160
     
     def __init__(self, processor_name: str = "openai/whisper-tiny"):
-        """Initialize processor."""
-        # Delay import to avoid JAX dependency issues on Kaggle
-        from transformers import WhisperProcessor
-        self.processor = WhisperProcessor.from_pretrained(processor_name)
+        """Initialize processor (model name kept for compatibility)."""
+        self.processor_name = processor_name
         logger.info(f"Processor initialized: {processor_name}")
+    
+    def _extract_mel_spectrogram(self, audio_array: np.ndarray, sampling_rate: int) -> np.ndarray:
+        """
+        Extract mel-spectrogram directly using librosa (no transformers import needed).
+        
+        Args:
+            audio_array: Audio waveform
+            sampling_rate: Sample rate of audio
+            
+        Returns:
+            Mel-spectrogram [n_mels, time_steps]
+        """
+        # Resample if necessary
+        if sampling_rate != self.TARGET_SAMPLE_RATE:
+            audio_array = librosa.resample(
+                audio_array,
+                orig_sr=sampling_rate,
+                target_sr=self.TARGET_SAMPLE_RATE
+            )
+        
+        # Compute mel-spectrogram (matches Whisper's feature extraction)
+        mel_spec = librosa.feature.melspectrogram(
+            y=audio_array,
+            sr=self.TARGET_SAMPLE_RATE,
+            n_mels=self.N_MELS,
+            n_fft=self.N_FFT,
+            hop_length=self.HOP_LENGTH
+        )
+        
+        # Convert to log scale
+        mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+        
+        return mel_spec_db.astype(np.float32)
     
     def load_dataset(
         self,
@@ -117,25 +152,8 @@ class SpeechOcean762DataProcessor:
                     audio_array = np.array(audio_dict["array"], dtype=np.float32)
                     sample_rate = audio_dict["sampling_rate"]
                     
-                    # Resample to 16kHz if needed
-                    if sample_rate != self.TARGET_SAMPLE_RATE:
-                        audio_array = librosa.resample(
-                            audio_array,
-                            orig_sr=sample_rate,
-                            target_sr=self.TARGET_SAMPLE_RATE
-                        ).astype(np.float32)
-                    
-                    # Normalize manually (avoid librosa.util.normalize overhead)
-                    rms = np.sqrt(np.mean(audio_array ** 2))
-                    if rms > 1e-6:
-                        audio_array = audio_array / rms
-                    
-                    # Get mel-spectrogram features
-                    input_features = self.processor(
-                        audio_array,
-                        sampling_rate=self.TARGET_SAMPLE_RATE,
-                        return_tensors="np"
-                    )["input_features"][0]
+                    # Extract mel-spectrogram directly (no transformers import)
+                    input_features = self._extract_mel_spectrogram(audio_array, sample_rate)
                     
                     audio_features_list.append(input_features)
                 
