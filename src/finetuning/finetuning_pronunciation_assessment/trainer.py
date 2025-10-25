@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Dict, Tuple
 from torch.utils.data import DataLoader
 
-from transformers import get_linear_schedule_with_warmup
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
@@ -50,6 +49,9 @@ class PronunciationAssessmentTrainer:
     
     def setup_optimization(self, total_steps: int):
         """Setup optimizer and learning rate scheduler."""
+        # Delay import to avoid JAX dependency issues on Kaggle
+        from transformers import get_linear_schedule_with_warmup
+        
         # Optimizer
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),

@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Dict, Optional, List
 
 from datasets import load_dataset, DatasetDict
-from transformers import WhisperProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +28,8 @@ class SpeechOcean762DataProcessor:
     
     def __init__(self, processor_name: str = "openai/whisper-tiny"):
         """Initialize processor."""
+        # Delay import to avoid JAX dependency issues on Kaggle
+        from transformers import WhisperProcessor
         self.processor = WhisperProcessor.from_pretrained(processor_name)
         logger.info(f"Processor initialized: {processor_name}")
     

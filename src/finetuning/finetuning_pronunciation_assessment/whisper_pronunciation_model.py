@@ -7,7 +7,6 @@ transcription quality through multi-objective training.
 
 import torch
 import torch.nn as nn
-from transformers import WhisperModel, WhisperConfig
 from typing import Optional, Dict, Tuple
 import logging
 
@@ -75,6 +74,9 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             use_utterance_level_assessment: (Deprecated) Use train_utterance_level instead
         """
         super().__init__()
+        
+        # Delay import to avoid JAX dependency issues on Kaggle
+        from transformers import WhisperModel
         
         self.model = WhisperModel.from_pretrained(model_name)
         config = self.model.config
