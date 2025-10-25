@@ -35,3 +35,5 @@ montreal-forced-aligner>=2.0.0  # For advanced phone alignment
 # Optional: for visualization
 matplotlib>=3.5.0
 seaborn>=0.11.0
+
+torchcodec>=0.1.0
