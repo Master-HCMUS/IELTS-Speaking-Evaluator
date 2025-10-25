@@ -1,6 +1,6 @@
 {
   "mode": "quick-test",
-  "timestamp": "2025-10-26T00:21:22.810973",
+  "timestamp": "2025-10-26T00:23:13.415512",
   "model": "openai/whisper-tiny",
   "epochs_trained": 1,
   "batch_size": 2,

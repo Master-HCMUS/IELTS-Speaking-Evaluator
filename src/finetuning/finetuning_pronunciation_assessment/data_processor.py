@@ -140,51 +140,49 @@ class SpeechOcean762DataProcessor:
         
         Args:
             datasets: DatasetDict to process
-            batch_size: Batch size for processing
+            batch_size: Batch size for processing (not used in non-batched approach)
             include_transcription: Whether to include transcription labels
             
         Returns:
             Processed DatasetDict with audio removed and features extracted
         """
-        logger.info(f"Preprocessing dataset (batch_size={batch_size})...")
+        logger.info(f"Preprocessing dataset...")
         
-        def preprocess_function(examples):
-            """Preprocess individual examples."""
-            batch_size_local = len(examples["audio"])
-            
-            # Process audio directly (no HF decoders)
-            audio_features_list = []
-            
-            for i in range(batch_size_local):
-                try:
-                    # Get audio
-                    audio_dict = examples["audio"][i]
-                    audio_array = np.array(audio_dict["array"], dtype=np.float32)
-                    sample_rate = audio_dict["sampling_rate"]
-                    
-                    # Extract mel-spectrogram directly (no transformers import)
-                    input_features = self._extract_mel_spectrogram(audio_array, sample_rate)
-                    
-                    audio_features_list.append(input_features)
+        def preprocess_function(example):
+            """Preprocess individual example (non-batched to avoid audio decoding issues)."""
+            try:
+                # Get audio
+                audio_dict = example["audio"]
+                audio_array = np.array(audio_dict["array"], dtype=np.float32)
+                sample_rate = audio_dict["sampling_rate"]
                 
-                except Exception as e:
-                    logger.warning(f"Error processing audio {i}: {e}")
-                    # Use zero features as fallback
-                    audio_features_list.append(np.zeros((80, 3000), dtype=np.float32))
+                # Extract mel-spectrogram directly (no transformers import)
+                input_features = self._extract_mel_spectrogram(audio_array, sample_rate)
+                
+                # Create result with features
+                result = {
+                    "input_features": input_features,
+                }
+                
+                # Copy assessment scores
+                for key in example.keys():
+                    if key not in ["audio", "words", "alignment"]:
+                        result[key] = example[key]
+                
+                return result
             
-            # Combine batch
-            result = {
-                "input_features": audio_features_list,
-            }
-            
-            # Copy assessment scores
-            for key in examples.keys():
-                if key not in ["audio", "words", "alignment"]:
-                    result[key] = examples[key]
-            
-            return result
+            except Exception as e:
+                logger.warning(f"Error processing audio: {e}")
+                # Return fallback with zero features
+                result = {
+                    "input_features": np.zeros((80, 3000), dtype=np.float32),
+                }
+                for key in example.keys():
+                    if key not in ["audio", "words", "alignment"]:
+                        result[key] = example[key]
+                return result
         
-        # Process each split - CRITICAL: num_proc=None to disable multiprocessing for Kaggle
+        # Process each split - CRITICAL: num_proc=None and batched=False to avoid codec issues
         processed_datasets = {}
         
         for split_name, split_data in datasets.items():
@@ -193,9 +191,8 @@ class SpeechOcean762DataProcessor:
             try:
                 processed = split_data.map(
                     preprocess_function,
-                    batched=True,
-                    batch_size=batch_size,
-                    num_proc=None,  # CRITICAL for Kaggle - disable multiprocessing to avoid codec issues
+                    batched=False,  # CRITICAL: Process one example at a time
+                    num_proc=None,  # CRITICAL for Kaggle - disable multiprocessing
                     remove_columns=["audio"],  # Remove after processing
                     desc=f"Processing {split_name}"
                 )
@@ -214,3 +211,4 @@ class SpeechOcean762DataProcessor:
                 raise
         
         return DatasetDict(processed_datasets)
+
