@@ -30,7 +30,7 @@ pyworld>=0.3.0  # For fundamental frequency analysis
 praat-parselmouth>=0.4.0  # For prosodic analysis
 
 # Optional: for phoneme alignment
-montreal-forced-alignment>=2.0.0  # For advanced phone alignment
+montreal-forced-aligner>=2.0.0  # For advanced phone alignment
 
 # Optional: for visualization
 matplotlib>=3.5.0
