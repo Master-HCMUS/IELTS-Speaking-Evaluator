@@ -10,6 +10,9 @@ import sys
 import argparse
 from pathlib import Path
 
+# Disable torchcodec early to avoid FFmpeg issues
+os.environ["DATASETS_DISABLE_TORCHCODEC"] = "1"
+
 # Add src to Python path and handle imports
 script_dir = Path(__file__).parent
 src_dir = script_dir.parent.parent

@@ -36,4 +36,7 @@ montreal-forced-aligner>=2.0.0  # For advanced phone alignment
 matplotlib>=3.5.0
 seaborn>=0.11.0
 
-torchcodec>=0.1.0
+# Note: torchcodec can cause FFmpeg compatibility issues
+# If you encounter audio loading issues, install FFmpeg separately:
+# conda install ffmpeg -c conda-forge
+# or use: pip install av  # Alternative audio processing
