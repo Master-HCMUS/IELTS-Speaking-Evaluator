@@ -383,99 +383,98 @@ class SpeechOcean762PronunciationProcessor:
         """
         logger.info("Preparing datasets for pronunciation assessment training...")
         
-        def preprocess_function(examples):
-            """Preprocess a batch of examples."""
-            # Disable torchcodec to avoid FFmpeg dependency issues
-            os.environ["DATASETS_DISABLE_TORCHCODEC"] = "1"
-            
-            # Process audio
-            audio_arrays = []
-            for audio in examples["audio"]:
-                processed_audio = self.preprocess_audio(
-                    audio["array"], 
-                    audio["sampling_rate"]
-                )
-                audio_arrays.append(processed_audio)
-            
-            # Extract features using Whisper feature extractor
-            inputs = self.feature_extractor(
-                audio_arrays,
-                sampling_rate=self.sampling_rate,
-                return_tensors="np"
-            )
-            
-            # Prepare the batch
-            batch = {
-                "input_features": inputs.input_features,
-            }
-            
-            # Add transcription data if requested
-            if include_transcription:
-                transcriptions = examples["text"]
-                labels = self.tokenizer(
-                    transcriptions,
-                    truncation=True,
-                    padding=True,
+        def preprocess_single_example(example):
+            """Preprocess a single example to avoid audio decoding issues."""
+            try:
+                # Process audio - access the audio data directly
+                audio_data = example["audio"]
+                if isinstance(audio_data, dict) and "array" in audio_data and "sampling_rate" in audio_data:
+                    # Audio is already decoded
+                    processed_audio = self.preprocess_audio(
+                        audio_data["array"], 
+                        audio_data["sampling_rate"]
+                    )
+                else:
+                    # Try to load audio using librosa as fallback
+                    if isinstance(audio_data, dict) and "path" in audio_data:
+                        # Load from path
+                        audio_array, sr = librosa.load(audio_data["path"], sr=self.sampling_rate)
+                        processed_audio = self.preprocess_audio(audio_array, sr)
+                    else:
+                        raise ValueError(f"Unsupported audio format: {type(audio_data)}")
+                
+                # Extract features using Whisper feature extractor
+                inputs = self.feature_extractor(
+                    processed_audio,
+                    sampling_rate=self.sampling_rate,
                     return_tensors="np"
                 )
-                batch["labels"] = labels.input_ids
-                batch["transcription"] = transcriptions
-            
-            # Extract pronunciation scores
-            words_data_batch = examples["words"]
-            
-            # Word-level scores
-            word_accuracy_batch = []
-            word_stress_batch = []
-            word_total_batch = []
-            
-            # Phone-level scores
-            phone_accuracy_batch = []
-            
-            for words_data in words_data_batch:
-                # Word-level scores for this sample
-                w_acc, w_stress, w_total = self.extract_word_level_scores(words_data)
-                word_accuracy_batch.append(w_acc)
-                word_stress_batch.append(w_stress)
-                word_total_batch.append(w_total)
                 
-                # Phone-level scores for this sample
+                # Prepare the result
+                result = {
+                    "input_features": inputs.input_features[0],  # Remove batch dimension
+                }
+                
+                # Add transcription data if requested
+                if include_transcription:
+                    transcription = example["text"]
+                    labels = self.tokenizer(
+                        transcription,
+                        truncation=True,
+                        return_tensors="np"
+                    )
+                    result["labels"] = labels.input_ids[0]  # Remove batch dimension
+                    result["transcription"] = transcription
+                
+                # Extract pronunciation scores
+                words_data = example["words"]
+                
+                # Word-level scores
+                w_acc, w_stress, w_total = self.extract_word_level_scores(words_data)
+                result.update({
+                    "word_accuracy_scores": w_acc,
+                    "word_stress_scores": w_stress,
+                    "word_total_scores": w_total,
+                })
+                
+                # Phone-level scores
                 p_acc = self.extract_phone_level_scores(words_data)
-                phone_accuracy_batch.append(p_acc)
-            
-            batch.update({
-                "word_accuracy_scores": word_accuracy_batch,
-                "word_stress_scores": word_stress_batch,
-                "word_total_scores": word_total_batch,
-                "phone_accuracy_scores": phone_accuracy_batch,
-            })
-            
-            # Add utterance-level scores
-            utterance_scores = ['accuracy', 'fluency', 'prosodic', 'completeness', 'total']
-            for score_type in utterance_scores:
-                if score_type in examples:
-                    batch[score_type] = examples[score_type]
-            
-            # Add metadata
-            batch.update({
-                "speaker": examples.get("speaker"),
-                "gender": examples.get("gender"),
-                "age": examples.get("age"),
-            })
-            
-            return batch
+                result["phone_accuracy_scores"] = p_acc
+                
+                # Add utterance-level scores
+                utterance_scores = ['accuracy', 'fluency', 'prosodic', 'completeness', 'total']
+                for score_type in utterance_scores:
+                    if score_type in example:
+                        result[score_type] = example[score_type]
+                
+                # Add metadata
+                for field in ["speaker", "gender", "age"]:
+                    if field in example:
+                        result[field] = example[field]
+                
+                return result
+                
+            except Exception as e:
+                logger.error(f"Error processing example: {e}")
+                logger.error(f"Example keys: {list(example.keys()) if isinstance(example, dict) else 'Not a dict'}")
+                if isinstance(example, dict) and "audio" in example:
+                    logger.error(f"Audio type: {type(example['audio'])}")
+                    if isinstance(example["audio"], dict):
+                        logger.error(f"Audio keys: {list(example['audio'].keys())}")
+                raise
         
         # Process each split
         processed_datasets = {}
         for split_name, dataset in datasets.items():
             logger.info(f"Processing {split_name} split...")
             
+            # Process one sample at a time to avoid audio decoding issues
             processed_dataset = dataset.map(
-                preprocess_function,
-                batched=True,
-                batch_size=8,  # Smaller batch size to handle complex processing
+                preprocess_single_example,
+                batched=False,  # Process one at a time
                 remove_columns=dataset.column_names,
-                desc=f"Preprocessing {split_name}"
+                desc=f"Preprocessing {split_name}",
+                num_proc=1  # Single process to avoid issues
             )
             
             processed_datasets[split_name] = processed_dataset
