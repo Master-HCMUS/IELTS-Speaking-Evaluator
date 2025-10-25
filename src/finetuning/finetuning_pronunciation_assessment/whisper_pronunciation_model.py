@@ -9,8 +9,21 @@ import torch
 import torch.nn as nn
 from typing import Optional, Dict, Tuple
 import logging
+import sys
+import os
 
 logger = logging.getLogger(__name__)
+
+
+def _suppress_jax_import():
+    """Suppress JAX import to avoid NumPy incompatibility on Kaggle."""
+    # Set environment variable to disable JAX
+    os.environ['JAX_PLATFORMS'] = 'cpu'
+    
+    # Try to suppress the import error by catching it early
+    import warnings
+    warnings.filterwarnings("ignore", category=AttributeError)
+
 
 
 class PronunciationAssessmentHead(nn.Module):
@@ -99,11 +112,30 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         if self._initialized:
             return
         
-        # Import here to delay JAX initialization
-        from transformers import WhisperModel
+        # Suppress warnings about JAX/NumPy incompatibility
+        import warnings
+        warnings.filterwarnings("ignore")
         
-        logger.info(f"Loading WhisperModel: {self.model_name}")
-        self.model = WhisperModel.from_pretrained(self.model_name)
+        # Set environment to skip JAX
+        os.environ['JAX_PLATFORMS'] = 'cpu'
+        
+        # Monkey-patch numpy.dtypes if it doesn't exist (for JAX compatibility)
+        import numpy as np
+        if not hasattr(np, 'dtypes'):
+            class DummyDtypes:
+                pass
+            np.dtypes = DummyDtypes()
+        
+        # Now import transformers
+        try:
+            from transformers import WhisperModel
+            logger.info(f"Loading WhisperModel: {self.model_name}")
+            self.model = WhisperModel.from_pretrained(self.model_name)
+        except Exception as e:
+            logger.error(f"Failed to load WhisperModel: {e}")
+            raise
+        
+        warnings.filterwarnings("default")
         config = self.model.config
         hidden_dim = config.d_model
         self._hidden_dim = hidden_dim
