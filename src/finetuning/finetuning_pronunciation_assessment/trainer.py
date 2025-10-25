@@ -49,6 +49,10 @@ class PronunciationAssessmentTrainer:
     
     def setup_optimization(self, total_steps: int):
         """Setup optimizer and learning rate scheduler."""
+        # Ensure model is initialized before creating optimizer
+        if hasattr(self.model, '_initialize_model'):
+            self.model._initialize_model()
+        
         # Optimizer
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
