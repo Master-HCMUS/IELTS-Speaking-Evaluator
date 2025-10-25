@@ -228,15 +228,9 @@ class SpeechOcean762PronunciationProcessor:
         for split_name, split_data in datasets.items():
             logger.info(f"  {split_name}: {len(split_data)} samples")
             
-            if len(split_data) > 0:
-                sample = split_data[0]
-                logger.info(f"    Sample schema:")
-                for key in sample.keys():
-                    value = sample[key]
-                    if isinstance(value, (list, dict)):
-                        logger.info(f"      - {key}: {type(value).__name__}")
-                    else:
-                        logger.info(f"      - {key}: {type(value).__name__}")
+            # Log dataset features without accessing samples (avoids audio decoding)
+            if hasattr(split_data, 'features'):
+                logger.info(f"    Features: {list(split_data.features.keys())}")
     
     def preprocess_audio(self, audio_array: np.ndarray, sampling_rate: int) -> np.ndarray:
         """
@@ -428,7 +422,7 @@ class SpeechOcean762PronunciationProcessor:
             batched=True,
             batch_size=8,
             num_proc=1,  # Set to 1 to avoid issues with audio processing
-            remove_columns=datasets["train"].column_names if "train" in datasets else None,
+            remove_columns=["audio"] if "audio" in datasets["train"].column_names else None,
             desc="Preprocessing datasets"
         )
         
