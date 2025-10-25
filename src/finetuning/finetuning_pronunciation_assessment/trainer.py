@@ -34,6 +34,34 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+class PronunciationAssessmentCustomTrainer(Trainer):
+    """
+    Custom trainer that handles shared tensor saving issues in Whisper models.
+    """
+    
+    def _save(self, output_dir: Optional[str] = None, state_dict=None):
+        """Override save method to handle shared tensors properly."""
+        output_dir = output_dir if output_dir is not None else self.args.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        
+        logger.info(f"Saving model checkpoint to {output_dir}")
+        
+        # Use our custom save method instead of the default safetensors
+        if hasattr(self.model, 'save_pretrained'):
+            self.model.save_pretrained(output_dir)
+        else:
+            # Fallback to torch.save for shared tensor handling
+            model_to_save = self.model.module if hasattr(self.model, 'module') else self.model
+            torch.save(model_to_save.state_dict(), os.path.join(output_dir, "pytorch_model.bin"))
+        
+        # Save tokenizer and configuration if available
+        if hasattr(self, 'tokenizer') and self.tokenizer is not None:
+            self.tokenizer.save_pretrained(output_dir)
+        
+        # Save training arguments
+        torch.save(self.args, os.path.join(output_dir, "training_args.bin"))
+
+
 class PronunciationMetricsCallback(TrainerCallback):
     """Custom callback to log detailed pronunciation assessment metrics during training."""
     
@@ -259,7 +287,7 @@ class PronunciationAssessmentTrainer:
         )
         
         # Create trainer
-        self.trainer = Trainer(
+        self.trainer = PronunciationAssessmentCustomTrainer(
             model=self.model,
             args=training_args,
             train_dataset=datasets[self.config.train_split],
@@ -300,12 +328,10 @@ class PronunciationAssessmentTrainer:
             logger.info("Starting training...")
             train_result = trainer.train()
             
-            # Save the final model
-            trainer.save_model()
-            self.data_processor.processor.save_pretrained(self.config.output_dir)
-            
-            # Save custom model using our save method
+            # Save the final model using our custom method
+            logger.info("Saving final model...")
             self.model.save_pretrained(self.config.output_dir)
+            self.data_processor.processor.save_pretrained(self.config.output_dir)
             
             # Log training results
             logger.info("Training completed successfully!")

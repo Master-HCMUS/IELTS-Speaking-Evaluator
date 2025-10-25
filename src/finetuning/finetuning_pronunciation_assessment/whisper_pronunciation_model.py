@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, Any, Optional, List, Tuple
 import numpy as np
+import logging
 
 from transformers import (
     WhisperForConditionalGeneration,
@@ -432,31 +433,47 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             return assessment_predictions
     
     def save_pretrained(self, save_directory: str):
-        """Save the model and configuration."""
+        """Save the model and configuration, handling shared tensors properly."""
         import os
         import json
         from pathlib import Path
         
+        logger = logging.getLogger(__name__)
+        
         save_path = Path(save_directory)
         save_path.mkdir(parents=True, exist_ok=True)
         
-        # Save the full model state
-        torch.save(self.state_dict(), save_path / "pytorch_model.bin")
+        # Save the full model state using torch.save to avoid shared tensor issues
+        # This is safer than safetensors for models with tied weights
+        model_path = save_path / "pytorch_model.bin"
+        torch.save(self.state_dict(), model_path)
+        logger.info(f"Model weights saved to {model_path}")
         
         # Save configuration
         config = {
-            "whisper_model_name": self.whisper.config.name_or_path,
+            "whisper_model_name": getattr(self.whisper.config, 'name_or_path', self.whisper.config._name_or_path),
             "model_type": "whisper_pronunciation_assessment",
             "assessment_dropout": 0.1,  # Default value
-            "loss_weights": self.loss_weights
+            "loss_weights": self.loss_weights,
+            "model_class": "WhisperPronunciationAssessmentModel"
         }
         
-        with open(save_path / "config.json", "w") as f:
+        config_path = save_path / "config.json"
+        with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
+        logger.info(f"Model config saved to {config_path}")
         
-        # Save the Whisper processor
-        processor = WhisperProcessor.from_pretrained(self.whisper.config.name_or_path)
-        processor.save_pretrained(save_directory)
+        # Save the Whisper processor components
+        try:
+            processor = WhisperProcessor.from_pretrained(
+                getattr(self.whisper.config, 'name_or_path', self.whisper.config._name_or_path)
+            )
+            processor.save_pretrained(save_directory)
+            logger.info(f"Processor saved to {save_directory}")
+        except Exception as e:
+            logger.warning(f"Could not save processor: {e}")
+        
+        logger.info(f"Model successfully saved to {save_directory}")
     
     @classmethod
     def from_pretrained(cls, model_path: str):
