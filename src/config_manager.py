@@ -60,9 +60,9 @@ class ConfigManager:
         },
         "local_whisper": {
             "enabled": False,
-            "model_path": "src/finetuning/models/whisper_development",
+            "model_path": "src/finetuning/finetuning_pronunciation_assessment/models/kaggle/checkpoint_epoch_36",
             "device": "auto",
-            "prefer_local": False,
+            "prefer_local": True,
             "language": "auto"
         }
     }
@@ -92,6 +92,7 @@ class ConfigManager:
         """
         try:
             if self.config_file.exists():
+                print(f"Loading configuration from file {self.config_file}.")
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     user_config = json.load(f)
                 
@@ -103,6 +104,7 @@ class ConfigManager:
                 
                 return config
             else:
+                print("Using default configuration.")
                 # Create default configuration file
                 self._save_config(self.DEFAULT_CONFIG)
                 return self.DEFAULT_CONFIG.copy()
@@ -307,6 +309,7 @@ class ConfigManager:
         
         # Validate model_path
         model_path = local_whisper_config.get("model_path", "")
+        print(f"Validating local Whisper model path: {model_path}")
         if not isinstance(model_path, str):
             raise ConfigurationError("Local Whisper model_path must be a string")
         

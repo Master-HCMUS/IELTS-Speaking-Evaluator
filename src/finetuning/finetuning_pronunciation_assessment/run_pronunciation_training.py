@@ -245,9 +245,9 @@ def main():
     )
     
     val_loader = None
-    if "validation" in processed_datasets:
+    if "test" in processed_datasets:
         val_loader = DataLoader(
-            processed_datasets["validation"],
+            processed_datasets["test"],
             batch_size=config.batch_size,
             shuffle=False,
             collate_fn=data_collator,
