@@ -153,7 +153,7 @@ def get_production_config() -> PronunciationTrainingConfig:
         max_eval_samples=None,
         batch_size=8,
         eval_batch_size=16,
-        num_epochs=100,
+        num_epochs=10,
         learning_rate=5e-6,
         warmup_steps=1000,
         gradient_accumulation_steps=2,
