@@ -1,12 +1,12 @@
 """
-Local pronunciation assessment service using fine-tuned Whisper encoder with assessment heads.
+Local pronunciation assessment service using fine-tuned Whisper model.
 
 This module provides pronunciation scoring using a locally trained model with:
-- Whisper encoder for audio encoding
-- Custom assessment heads for scoring
+- WhisperForConditionalGeneration for both transcription and assessment
+- Frame-level assessment heads (word accuracy, stress, phone accuracy)
+- Utterance-level assessment heads (accuracy, fluency, prosodic, completeness, total)
 
-Note: This service is for ASSESSMENT ONLY, not transcription.
-For transcription, use Azure OpenAI or standard Whisper model.
+Output format compatible with SpeechOcean762 dataset standard.
 """
 
 import torch
@@ -192,11 +192,16 @@ class LocalPronunciationAssessmentService:
         """
         Assess pronunciation of an audio file.
         
+        Returns scores in SpeechOcean762 format:
+        - word_level: accuracy, stress, total (per frame)
+        - phone_level: accuracy (per frame)
+        - utterance_level: accuracy, fluency, prosodic, completeness, total
+        
         Args:
             file_path: Path to audio file to assess
             
         Returns:
-            Dict with pronunciation scores
+            Dict with pronunciation scores in SpeechOcean762 format
         """
         file_path = Path(file_path)
         
@@ -210,53 +215,84 @@ class LocalPronunciationAssessmentService:
             mel_spec = self._load_and_preprocess_audio(file_path)
             mel_spec = torch.from_numpy(mel_spec).float().to(self.device)
             
-            # Get predictions
+            # Get predictions using the new method
             with torch.no_grad():
-                predictions = self.model(mel_spec)
+                scores_dict = self.model.predict_assessment_scores(mel_spec)
             
-            # Extract scores
-            scores = {}
-            
-            # Utterance-level scores (single value per utterance)
-            if 'utterance_accuracy_logits' in predictions:
-                scores['utterance_accuracy'] = float(predictions['utterance_accuracy_logits'].item())
-            if 'utterance_fluency_logits' in predictions:
-                scores['utterance_fluency'] = float(predictions['utterance_fluency_logits'].item())
-            if 'utterance_prosodic_logits' in predictions:
-                scores['utterance_prosodic'] = float(predictions['utterance_prosodic_logits'].item())
-            if 'utterance_completeness_logits' in predictions:
-                scores['utterance_completeness'] = float(predictions['utterance_completeness_logits'].item())
-            if 'utterance_total_logits' in predictions:
-                scores['utterance_total'] = float(predictions['utterance_total_logits'].item())
-            
-            # Word-level scores (averaged across sequence)
-            if 'word_accuracy_logits' in predictions:
-                word_acc = predictions['word_accuracy_logits'].mean(dim=1)
-                scores['word_accuracy'] = float(word_acc.item())
-            if 'word_stress_logits' in predictions:
-                word_stress = predictions['word_stress_logits'].mean(dim=1)
-                scores['word_stress'] = float(word_stress.item())
-            if 'word_total_logits' in predictions:
-                word_total = predictions['word_total_logits'].mean(dim=1)
-                scores['word_total'] = float(word_total.item())
-            
-            # Phone-level score (averaged across sequence)
-            if 'phone_accuracy_logits' in predictions:
-                phone_acc = predictions['phone_accuracy_logits'].mean(dim=1)
-                scores['phone_accuracy'] = float(phone_acc.item())
-            
-            # Normalize scores to 0-100 range if needed
-            scores = self._normalize_scores(scores)
-            
+            # Structure output in SpeechOcean762 format
             result = {
                 "status": "success",
                 "file": file_path.name,
-                "scores": scores,
+                "scores": {
+                    "word_level": {},
+                    "phone_level": {},
+                    "utterance_level": {}
+                },
                 "model_path": str(self.model_path),
                 "device": str(self.device)
             }
             
-            logger.info(f"Assessment complete: {scores}")
+            # Extract and normalize word-level scores
+            word_level = scores_dict.get('word_level', {})
+            if 'accuracy' in word_level:
+                # Frame-level scores: [batch, seq_len]
+                accuracy_scores = word_level['accuracy'].cpu().numpy()
+                result['scores']['word_level']['accuracy'] = self._normalize_frame_scores(
+                    accuracy_scores[0] if accuracy_scores.ndim > 1 else accuracy_scores
+                )
+            
+            if 'stress' in word_level:
+                stress_scores = word_level['stress'].cpu().numpy()
+                result['scores']['word_level']['stress'] = self._normalize_frame_scores(
+                    stress_scores[0] if stress_scores.ndim > 1 else stress_scores
+                )
+            
+            if 'total' in word_level:
+                total_scores = word_level['total'].cpu().numpy()
+                result['scores']['word_level']['total'] = self._normalize_frame_scores(
+                    total_scores[0] if total_scores.ndim > 1 else total_scores
+                )
+            
+            # Extract and normalize phone-level scores
+            phone_level = scores_dict.get('phone_level', {})
+            if 'accuracy' in phone_level:
+                phone_scores = phone_level['accuracy'].cpu().numpy()
+                result['scores']['phone_level']['accuracy'] = self._normalize_frame_scores(
+                    phone_scores[0] if phone_scores.ndim > 1 else phone_scores
+                )
+            
+            # Extract and normalize utterance-level scores (single values)
+            utterance_level = scores_dict.get('utterance_level', {})
+            
+            if 'accuracy' in utterance_level:
+                acc = utterance_level['accuracy'].item()
+                result['scores']['utterance_level']['accuracy'] = self._normalize_utterance_score(acc)
+            
+            if 'fluency' in utterance_level:
+                flu = utterance_level['fluency'].item()
+                result['scores']['utterance_level']['fluency'] = self._normalize_utterance_score(flu)
+            
+            if 'prosodic' in utterance_level:
+                pro = utterance_level['prosodic'].item()
+                result['scores']['utterance_level']['prosodic'] = self._normalize_utterance_score(pro)
+            
+            if 'completeness' in utterance_level:
+                com = utterance_level['completeness'].item()
+                result['scores']['utterance_level']['completeness'] = self._normalize_utterance_score(com)
+            
+            if 'total' in utterance_level:
+                tot = utterance_level['total'].item()
+                result['scores']['utterance_level']['total'] = self._normalize_utterance_score(tot)
+            
+            # Add averages for convenience
+            result['scores']['word_level']['average'] = self._compute_average(
+                result['scores']['word_level'].get('accuracy', [])
+            )
+            result['scores']['phone_level']['average'] = self._compute_average(
+                result['scores']['phone_level'].get('accuracy', [])
+            )
+            
+            logger.info(f"Assessment complete. Utterance scores: {result['scores']['utterance_level']}")
             return result
         
         except Exception as e:
@@ -266,6 +302,51 @@ class LocalPronunciationAssessmentService:
                 "error": str(e),
                 "file": file_path.name
             }
+    
+    def _normalize_frame_scores(self, scores: np.ndarray) -> list:
+        """
+        Normalize frame-level scores to 0-10 range.
+        
+        Args:
+            scores: Array of frame scores
+            
+        Returns:
+            List of normalized scores
+        """
+        if isinstance(scores, (int, float)):
+            scores = np.array([scores])
+        
+        # Apply sigmoid to bound between 0-1, then scale to 0-10
+        normalized = torch.sigmoid(torch.tensor(scores)).numpy() * 10
+        return normalized.tolist()
+    
+    def _normalize_utterance_score(self, score: float) -> float:
+        """
+        Normalize utterance-level score to 0-10 range.
+        
+        Args:
+            score: Single utterance score
+            
+        Returns:
+            Normalized score (0-10)
+        """
+        # Apply sigmoid to bound between 0-1, then scale to 0-10
+        normalized = float(torch.sigmoid(torch.tensor(score)).item() * 10)
+        return normalized
+    
+    def _compute_average(self, scores: Union[list, np.ndarray]) -> float:
+        """
+        Compute average of frame-level scores.
+        
+        Args:
+            scores: List or array of scores
+            
+        Returns:
+            Average score
+        """
+        if not scores or len(scores) == 0:
+            return 0.0
+        return float(np.mean(scores))
     
     def _normalize_scores(self, scores: Dict[str, float]) -> Dict[str, float]:
         """

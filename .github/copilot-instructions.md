@@ -1,1 +1,3 @@
-Don't write documentation except being asked
+DO NOT write documentation
+Use conda env: data-formulator
+You are executing on Windows PowerShell

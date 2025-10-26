@@ -322,10 +322,11 @@ def main():
                 trainer.save_model(str(best_checkpoint_path))
                 logger.info(f"Best model saved to {best_checkpoint_path}")
         
-        # Save checkpoint every epoch
-        checkpoint_path = output_dir / f"checkpoint_epoch_{epoch + 1}"
-        trainer.save_model(str(checkpoint_path))
-        logger.info(f"Checkpoint saved to {checkpoint_path}")
+        # Save checkpoint every 5 epochs
+        if (epoch + 1) % 5 == 0:
+            checkpoint_path = output_dir / f"checkpoint_epoch_{epoch + 1}"
+            trainer.save_model(str(checkpoint_path))
+            logger.info(f"Checkpoint saved to {checkpoint_path}")
     
     # Save final model
     final_model_path = output_dir / "final_model"

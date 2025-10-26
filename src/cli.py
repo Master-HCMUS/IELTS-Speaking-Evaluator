@@ -9,6 +9,7 @@ import argparse
 import signal
 import sys
 import time
+import numpy as np
 from pathlib import Path
 from typing import Dict, Callable
 
@@ -138,36 +139,105 @@ class AudioRecorderCLI:
             if result.get("status") == "success":
                 self.menu_system.display_success("✅ Assessment completed!")
                 
-                # Display scores
+                # Display scores in new hierarchical SpeechOcean762 format
                 scores = result.get("scores", {})
                 print("\n📊 Pronunciation Assessment Scores:")
-                print("-" * 50)
+                print("=" * 60)
                 
-                # Helper function to safely format scores
-                def format_score(value, default='N/A'):
+                # Helper functions for score formatting
+                def format_score(value, default='N/A', format_type='score'):
+                    """Format a score value for display."""
                     if isinstance(value, (int, float)):
-                        return f"{value:.1f}%"
+                        if format_type == 'percentage':
+                            return f"{value:.2f}"
+                        elif format_type == 'score':
+                            return f"{value:.2f}"
+                        else:
+                            return f"{value}"
                     return default
                 
-                # Utterance level scores
-                print("\nUtterance Level:")
-                print(f"  Accuracy:  {format_score(scores.get('utterance_accuracy'))}")
-                print(f"  Fluency:   {format_score(scores.get('utterance_fluency'))}")
-                print(f"  Completeness: {format_score(scores.get('utterance_completeness'))}")
+                def format_frame_scores(scores_list, num_display=5):
+                    """Format frame-level scores for display."""
+                    if not scores_list or len(scores_list) == 0:
+                        return "N/A"
+                    
+                    # Show first few and last few scores
+                    if len(scores_list) <= num_display * 2:
+                        displayed = [f"{s:.2f}" for s in scores_list]
+                    else:
+                        first = [f"{s:.2f}" for s in scores_list[:num_display]]
+                        last = [f"{s:.2f}" for s in scores_list[-num_display:]]
+                        displayed = first + ["..."] + last
+                    
+                    return f"[{', '.join(displayed)}] (Total frames: {len(scores_list)})"
                 
-                # Word level scores
-                print("\nWord Level:")
-                print(f"  Accuracy:  {format_score(scores.get('word_accuracy'))}")
-                print(f"  Average Confidence: {format_score(scores.get('word_avg_confidence'))}")
+                # Utterance Level Scores (most important)
+                print("\n🎯 UTTERANCE LEVEL (Overall Scores):")
+                print("-" * 60)
+                utterance_scores = scores.get('utterance_level', {})
                 
-                # Phone level scores
-                print("\nPhone Level:")
-                print(f"  Accuracy:  {format_score(scores.get('phone_accuracy'))}")
+                utterance_keys = ['accuracy', 'fluency', 'prosodic', 'completeness', 'total']
+                for key in utterance_keys:
+                    if key in utterance_scores:
+                        value = utterance_scores[key]
+                        formatted = format_score(value, format_type='score')
+                        print(f"  {key.capitalize():15} : {formatted:>6} / 10.0")
                 
-                print("-" * 50)
-                print(f"\nDevice used: {result.get('device', 'N/A')}")
-                if result.get('processing_time'):
-                    print(f"Processing time: {result.get('processing_time'):.2f}s")
+                # Word Level Scores
+                print("\n📝 WORD LEVEL (Frame-by-Frame):")
+                print("-" * 60)
+                word_scores = scores.get('word_level', {})
+                
+                if 'accuracy' in word_scores:
+                    accuracy_frames = word_scores['accuracy']
+                    avg_acc = format_score(word_scores.get('average'), format_type='score')
+                    print(f"  Accuracy   : Avg {avg_acc:>6} / 10.0")
+                    print(f"               {format_frame_scores(accuracy_frames, num_display=3)}")
+                
+                if 'stress' in word_scores:
+                    stress_frames = word_scores['stress']
+                    print(f"  Stress     : {format_frame_scores(stress_frames, num_display=3)}")
+                
+                if 'total' in word_scores:
+                    total_frames = word_scores['total']
+                    print(f"  Total      : {format_frame_scores(total_frames, num_display=3)}")
+                
+                # Phone Level Scores
+                print("\n🔤 PHONE LEVEL (Phoneme Analysis):")
+                print("-" * 60)
+                phone_scores = scores.get('phone_level', {})
+                
+                if 'accuracy' in phone_scores:
+                    accuracy_frames = phone_scores['accuracy']
+                    avg_acc = format_score(phone_scores.get('average'), format_type='score')
+                    print(f"  Accuracy   : Avg {avg_acc:>6} / 10.0")
+                    print(f"               {format_frame_scores(accuracy_frames, num_display=3)}")
+                
+                # Summary Statistics
+                print("\n📈 SUMMARY STATISTICS:")
+                print("-" * 60)
+                
+                # Calculate and display statistics
+                if 'word_level' in scores and 'accuracy' in scores['word_level']:
+                    word_acc_array = np.array(scores['word_level']['accuracy'])
+                    print(f"  Word Accuracy    : Min {word_acc_array.min():.2f}, "
+                          f"Max {word_acc_array.max():.2f}, "
+                          f"Mean {word_acc_array.mean():.2f}, "
+                          f"Std {word_acc_array.std():.2f}")
+                
+                if 'phone_level' in scores and 'accuracy' in scores['phone_level']:
+                    phone_acc_array = np.array(scores['phone_level']['accuracy'])
+                    print(f"  Phone Accuracy   : Min {phone_acc_array.min():.2f}, "
+                          f"Max {phone_acc_array.max():.2f}, "
+                          f"Mean {phone_acc_array.mean():.2f}, "
+                          f"Std {phone_acc_array.std():.2f}")
+                
+                print("\n📋 METADATA:")
+                print("-" * 60)
+                print(f"  File        : {result.get('file', 'N/A')}")
+                print(f"  Device      : {result.get('device', 'N/A')}")
+                print(f"  Model Path  : {result.get('model_path', 'N/A')}")
+                print("=" * 60)
                 
             else:
                 error = result.get("error", "Unknown error")
