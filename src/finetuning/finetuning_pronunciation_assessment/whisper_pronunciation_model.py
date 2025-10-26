@@ -222,13 +222,15 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         
         # Freeze encoder if requested
         if self.freeze_encoder:
-            for param in self.model.encoder.parameters():
+            encoder = self.model.get_encoder()
+            for param in encoder.parameters():
                 param.requires_grad = False
             logger.info("Encoder weights frozen")
         
         # Freeze decoder if requested
         if self.freeze_decoder:
-            for param in self.model.decoder.parameters():
+            decoder = self.model.get_decoder()
+            for param in decoder.parameters():
                 param.requires_grad = False
             logger.info("Decoder weights frozen")
         
@@ -278,7 +280,8 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         self._initialize_model()
         
         # Get encoder outputs
-        encoder_outputs = self.model.encoder(input_features)
+        encoder = self.model.get_encoder()
+        encoder_outputs = encoder(input_features)
         encoder_last_hidden = encoder_outputs.last_hidden_state  # [batch, seq_len, hidden_dim]
         
         # Pool for utterance-level (mean pooling over sequence)
@@ -291,7 +294,8 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         
         # Transcription logits (decoder)
         if decoder_input_ids is not None:
-            decoder_outputs = self.model.decoder(
+            decoder = self.model.get_decoder()
+            decoder_outputs = decoder(
                 input_ids=decoder_input_ids,
                 encoder_hidden_states=encoder_last_hidden,
                 attention_mask=attention_mask
@@ -328,7 +332,8 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             Encoder hidden states [batch, seq_len, hidden_dim]
         """
         self._initialize_model()
-        encoder_outputs = self.model.encoder(input_features)
+        encoder = self.model.get_encoder()
+        encoder_outputs = encoder(input_features)
         return encoder_outputs.last_hidden_state
     
     def generate_transcription(
@@ -349,9 +354,10 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             Generated token IDs [batch, seq_len]
         """
         self._initialize_model()
-        encoder_outputs = self.model.encoder(input_features)
+        encoder = self.model.get_encoder()
+        encoder_outputs = encoder(input_features)
         
-        generated_ids = self.model.decoder.generate(
+        generated_ids = self.model.generate(
             encoder_outputs=encoder_outputs,
             max_length=max_length,
             num_beams=num_beams

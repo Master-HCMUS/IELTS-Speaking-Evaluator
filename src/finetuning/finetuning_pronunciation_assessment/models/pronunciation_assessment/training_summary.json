@@ -1,6 +1,6 @@
 {
   "mode": "quick-test",
-  "timestamp": "2025-10-26T00:23:13.415512",
+  "timestamp": "2025-10-26T22:51:03.630564",
   "model": "openai/whisper-tiny",
   "epochs_trained": 1,
   "batch_size": 2,
@@ -16,5 +16,5 @@
     "utterance_completeness": 0.1,
     "utterance_total": 1.0
   },
-  "best_validation_loss": null
+  "best_validation_loss": 321.93170166015625
 }
