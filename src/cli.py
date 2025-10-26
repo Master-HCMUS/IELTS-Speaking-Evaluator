@@ -17,6 +17,7 @@ from .ui.menu_system import MenuSystem
 from .workflows.workflow_orchestrator import WorkflowOrchestrator
 from .workflows.configuration_handlers import ConfigurationHandlers
 from .workflows.file_manager import FileManager
+from .local_pronunciation_assessment_service import LocalPronunciationAssessmentService
 
 
 class AudioRecorderCLI:
@@ -81,6 +82,102 @@ class AudioRecorderCLI:
         selected_file = self.file_manager.select_audio_file(self.menu_system)
         if selected_file:
             self.workflow_orchestrator.comprehensive_assessment(selected_file)
+        self.menu_system.wait_for_enter()
+    
+    def _assess_with_local_model(self) -> None:
+        """Handle pronunciation assessment using the local fine-tuned model."""
+        self.menu_system.display_section_header("Local Model Pronunciation Assessment")
+        
+        # Select audio file
+        selected_file = self.file_manager.select_audio_file(self.menu_system)
+        if not selected_file:
+            self.menu_system.wait_for_enter()
+            return
+        
+        # Get model path from config or user input
+        local_config = self.config_manager.get_local_whisper_config()
+        model_dir = Path(local_config.get("model_path", ""))
+        print("Local config: ", local_config)
+        # Check if we should look for the fine-tuned assessment model
+        assessment_model_path = Path(local_config.get("assessment_model_path", ""))
+        if not assessment_model_path.exists():
+            # Try to find the pronunciation assessment model
+            possible_paths = [
+                Path("src/finetuning/finetuning_pronunciation_assessment/models/pronunciation_production"),
+                Path("./models/pronunciation_assessment"),
+                model_dir / "pronunciation_assessment"
+            ]
+            
+            for path in possible_paths:
+                if path.exists():
+                    assessment_model_path = path
+                    break
+        
+        if not assessment_model_path.exists():
+            self.menu_system.display_error(
+                "Fine-tuned pronunciation assessment model not found. "
+                "Please train the model first using the finetuning module."
+            )
+            self.menu_system.wait_for_enter()
+            return
+        
+        try:
+            self.menu_system.display_info("Loading local assessment model...")
+            
+            # Initialize the assessment service
+            service = LocalPronunciationAssessmentService(
+                model_path=str(assessment_model_path),
+                device=local_config.get("device", "auto")
+            )
+            
+            self.menu_system.display_info(f"Assessing pronunciation: {selected_file.name}")
+            
+            # Run assessment
+            result = service.assess_pronunciation(str(selected_file))
+            
+            if result.get("status") == "success":
+                self.menu_system.display_success("✅ Assessment completed!")
+                
+                # Display scores
+                scores = result.get("scores", {})
+                print("\n📊 Pronunciation Assessment Scores:")
+                print("-" * 50)
+                
+                # Helper function to safely format scores
+                def format_score(value, default='N/A'):
+                    if isinstance(value, (int, float)):
+                        return f"{value:.1f}%"
+                    return default
+                
+                # Utterance level scores
+                print("\nUtterance Level:")
+                print(f"  Accuracy:  {format_score(scores.get('utterance_accuracy'))}")
+                print(f"  Fluency:   {format_score(scores.get('utterance_fluency'))}")
+                print(f"  Completeness: {format_score(scores.get('utterance_completeness'))}")
+                
+                # Word level scores
+                print("\nWord Level:")
+                print(f"  Accuracy:  {format_score(scores.get('word_accuracy'))}")
+                print(f"  Average Confidence: {format_score(scores.get('word_avg_confidence'))}")
+                
+                # Phone level scores
+                print("\nPhone Level:")
+                print(f"  Accuracy:  {format_score(scores.get('phone_accuracy'))}")
+                
+                print("-" * 50)
+                print(f"\nDevice used: {result.get('device', 'N/A')}")
+                if result.get('processing_time'):
+                    print(f"Processing time: {result.get('processing_time'):.2f}s")
+                
+            else:
+                error = result.get("error", "Unknown error")
+                self.menu_system.display_error(f"Assessment failed: {error}")
+            
+        except FileNotFoundError as e:
+            self.menu_system.display_error(f"Model not found: {e}")
+        except Exception as e:
+            self.menu_system.display_error(f"Assessment error: {e}")
+        
         self.menu_system.wait_for_enter()
     
     def _run_dataset_evaluation(self) -> None:
@@ -266,16 +363,17 @@ class AudioRecorderCLI:
             '3': self._transcribe_existing_file,
             '4': self._assess_pronunciation_file,
             '5': self._comprehensive_assessment_file,
-            '6': self._run_dataset_evaluation,
-            '7': self.workflow_orchestrator.list_audio_devices,
-            '8': self.workflow_orchestrator.select_audio_device,
-            '9': self.config_handlers.configure_audio_settings,
-            '10': self.config_handlers.configure_azure_openai,
-            '11': self._configure_local_whisper,
-            '12': self._switch_transcription_service,
-            '13': self._show_transcription_status,
-            '14': self.config_handlers.view_current_settings,
-            '15': self.workflow_orchestrator.test_azure_connection,
+            '6': self._assess_with_local_model,
+            '7': self._run_dataset_evaluation,
+            '8': self.workflow_orchestrator.list_audio_devices,
+            '9': self.workflow_orchestrator.select_audio_device,
+            '10': self.config_handlers.configure_audio_settings,
+            '11': self.config_handlers.configure_azure_openai,
+            '12': self._configure_local_whisper,
+            '13': self._switch_transcription_service,
+            '14': self._show_transcription_status,
+            '15': self.config_handlers.view_current_settings,
+            '16': self.workflow_orchestrator.test_azure_connection,
             's': self._show_storage_info,  # Hidden storage info option
             'h': self.menu_system.display_help,
             'help': self.menu_system.display_help,

@@ -61,6 +61,7 @@ class ConfigManager:
         "local_whisper": {
             "enabled": False,
             "model_path": "src/finetuning/finetuning_pronunciation_assessment/models/kaggle/checkpoint_epoch_36",
+            "assessment_model_path": "src/finetuning/finetuning_pronunciation_assessment/models/kaggle",
             "device": "auto",
             "prefer_local": True,
             "language": "auto"

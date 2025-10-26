@@ -1,0 +1,1 @@
+Don't write documentation except being asked
