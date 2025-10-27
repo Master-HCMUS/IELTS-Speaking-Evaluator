@@ -16,6 +16,7 @@ import librosa
 from pathlib import Path
 from typing import Dict, Any, Optional, Union
 import logging
+from transformers import WhisperProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,44 @@ class LocalPronunciationAssessmentService:
             logger.error(f"Failed to load model: {e}")
             raise
     
+    def _generate_transcription(self, mel_spec: torch.Tensor) -> Optional[str]:
+        """
+        Generate transcription from mel-spectrogram using the model's decoder.
+        
+        Args:
+            mel_spec: Mel-spectrogram tensor [batch, 80, 3000]
+            
+        Returns:
+            Transcription text or None if generation fails
+        """
+        try:
+            if self.model is None:
+                logger.warning("Model not loaded, cannot generate transcription")
+                return None
+            
+            # Generate token IDs using the model
+            with torch.no_grad():
+                generated_ids = self.model.generate_transcription(
+                    mel_spec,
+                    max_length=128,
+                    num_beams=1
+                )
+            
+            # Decode tokens to text using WhisperProcessor
+            processor = WhisperProcessor.from_pretrained("openai/whisper-base")
+            transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)
+            
+            # Return first transcription from batch
+            if transcription and len(transcription) > 0:
+                return transcription[0].strip()
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Failed to generate transcription: {e}")
+            return None
+
+    
     def _load_and_preprocess_audio(self, file_path: Union[str, Path]) -> np.ndarray:
         """
         Load and preprocess audio file to mel-spectrogram.
@@ -188,7 +227,7 @@ class LocalPronunciationAssessmentService:
             logger.error(f"Failed to load audio: {e}")
             raise
     
-    def assess_pronunciation(self, file_path: Union[str, Path]) -> Dict[str, Any]:
+    def assess_pronunciation(self, file_path: Union[str, Path], target_text: Optional[str] = None) -> Dict[str, Any]:
         """
         Assess pronunciation of an audio file.
         
@@ -196,12 +235,15 @@ class LocalPronunciationAssessmentService:
         - word_level: accuracy, stress, total (per frame)
         - phone_level: accuracy (per frame)
         - utterance_level: accuracy, fluency, prosodic, completeness, total
+        - transcript: Transcribed text from audio
         
         Args:
             file_path: Path to audio file to assess
+            target_text: Optional target text the user should have said
+                        If provided, scores are penalized if transcript doesn't match
             
         Returns:
-            Dict with pronunciation scores in SpeechOcean762 format
+            Dict with pronunciation scores and transcript in SpeechOcean762 format
         """
         file_path = Path(file_path)
         
@@ -219,10 +261,14 @@ class LocalPronunciationAssessmentService:
             with torch.no_grad():
                 scores_dict = self.model.predict_assessment_scores(mel_spec)
             
+            # Generate transcription
+            transcript = self._generate_transcription(mel_spec)
+            
             # Structure output in SpeechOcean762 format
             result = {
                 "status": "success",
                 "file": file_path.name,
+                "transcript": transcript if transcript else "Unable to generate transcript",
                 "scores": {
                     "word_level": {},
                     "phone_level": {},
@@ -292,7 +338,21 @@ class LocalPronunciationAssessmentService:
                 result['scores']['phone_level'].get('accuracy', [])
             )
             
+            # Apply content matching penalty if target text provided
+            if target_text:
+                similarity = self._calculate_text_similarity(target_text, transcript)
+                result['content_match'] = {
+                    'target': target_text,
+                    'similarity': similarity,
+                    'match_percentage': similarity * 100
+                }
+                
+                # Apply penalty to scores if content doesn't match
+                if similarity < 0.75:
+                    result = self._apply_content_penalty(result, similarity)
+            
             logger.info(f"Assessment complete. Utterance scores: {result['scores']['utterance_level']}")
+            logger.info(f"Transcript: {transcript}")
             return result
         
         except Exception as e:
@@ -370,6 +430,78 @@ class LocalPronunciationAssessmentService:
         
         return normalized
     
+    def _calculate_text_similarity(self, text1: str, text2: str) -> float:
+        """
+        Calculate similarity between two texts using sequence matching.
+        
+        Args:
+            text1: Target text
+            text2: Transcribed text
+            
+        Returns:
+            Similarity ratio (0-1)
+        """
+        from difflib import SequenceMatcher
+        
+        # Normalize texts: lowercase and strip whitespace
+        text1_norm = text1.lower().strip()
+        text2_norm = text2.lower().strip()
+        
+        # Use SequenceMatcher to calculate similarity
+        matcher = SequenceMatcher(None, text1_norm, text2_norm)
+        return matcher.ratio()
+    
+    def _apply_content_penalty(self, result: Dict[str, Any], similarity: float) -> Dict[str, Any]:
+        """
+        Apply penalty to scores if transcribed content doesn't match target.
+        
+        Args:
+            result: Assessment result dictionary
+            similarity: Text similarity ratio (0-1)
+            
+        Returns:
+            Result with penalized scores
+        """
+        # Calculate penalty factor based on similarity
+        if similarity < 0.5:
+            penalty_factor = 0.3 + (similarity * 0.4)  # Range: 0.3-0.7
+        elif similarity < 0.75:
+            penalty_factor = 0.85
+        else:
+            penalty_factor = 1.0  # No penalty
+        
+        # Apply penalty to utterance-level scores
+        utterance_scores = result['scores']['utterance_level']
+        for key in utterance_scores:
+            if key != 'total':
+                utterance_scores[key] = utterance_scores[key] * penalty_factor
+            else:
+                # Total score gets heavier penalty
+                utterance_scores[key] = utterance_scores[key] * max(penalty_factor - 0.1, 0.2)
+        
+        # Apply penalty to word-level scores (frame-level accuracy)
+        word_level = result['scores']['word_level']
+        if 'accuracy' in word_level and isinstance(word_level['accuracy'], list):
+            word_level['accuracy'] = [score * penalty_factor for score in word_level['accuracy']]
+        if 'average' in word_level:
+            word_level['average'] = word_level['average'] * penalty_factor
+        
+        # Apply penalty to phone-level scores
+        phone_level = result['scores']['phone_level']
+        if 'accuracy' in phone_level and isinstance(phone_level['accuracy'], list):
+            phone_level['accuracy'] = [score * penalty_factor for score in phone_level['accuracy']]
+        if 'average' in phone_level:
+            phone_level['average'] = phone_level['average'] * penalty_factor
+        
+        result['penalty_applied'] = {
+            'similarity': similarity,
+            'penalty_factor': penalty_factor,
+            'reason': 'Content mismatch detected'
+        }
+        
+        return result
+    
+
     def get_model_info(self) -> Dict[str, Any]:
         """Get information about the loaded model."""
         if not self.model:

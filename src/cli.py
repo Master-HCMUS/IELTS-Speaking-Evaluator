@@ -139,6 +139,13 @@ class AudioRecorderCLI:
             if result.get("status") == "success":
                 self.menu_system.display_success("✅ Assessment completed!")
                 
+                # Display transcript
+                transcript = result.get("transcript", "Unable to generate transcript")
+                print("\n📋 TRANSCRIPT:")
+                print("=" * 60)
+                print(f"  {transcript}")
+                print("=" * 60)
+                
                 # Display scores in new hierarchical SpeechOcean762 format
                 scores = result.get("scores", {})
                 print("\n📊 Pronunciation Assessment Scores:")

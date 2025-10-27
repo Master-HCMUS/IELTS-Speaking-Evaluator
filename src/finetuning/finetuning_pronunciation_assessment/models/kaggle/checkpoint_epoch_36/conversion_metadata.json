@@ -1,6 +1,0 @@
-{
-  "source_file": "src\\finetuning\\finetuning_pronunciation_assessment\\models\\kaggle\\model_epoch_36.pt",
-  "base_model": "openai/whisper-base",
-  "conversion_method": "pth_to_transformers",
-  "model_type": "fine-tuned-whisper"
-}
