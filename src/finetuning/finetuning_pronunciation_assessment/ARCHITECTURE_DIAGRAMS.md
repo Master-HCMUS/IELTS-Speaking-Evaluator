@@ -83,8 +83,16 @@
 │                                                                 │
 │     ┌─ PATH A: TRANSCRIPTION                                   │
 │     │  ├─ Input: encoder_hidden_states [1, 18, 512]           │
-│     │  ├─ Decoder: Generate tokens                             │
-│     │  └─ Output: [1, seq_len, vocab_size]                     │
+│     │  │         decoder_input_ids [1, seq_len] (training)    │
+│     │  ├─ Decoder: Generate tokens from encoder context       │
+│     │  ├─ Output: decoder_hidden_states [1, seq_len, 512]     │
+│     │  ├─ LM Head: Convert hidden → vocabulary predictions    │
+│     │  │  lm_logits = self.model.lm_head(hidden_states)      │
+│     │  │  Shape: [1, seq_len, vocab_size=51864]              │
+│     │  └─ Training Loss: CrossEntropyLoss with label shift    │
+│     │     • Shifted logits:  [1, seq_len-1, vocab_size]      │
+│     │     • Shifted labels:  [1, seq_len-1]                  │
+│     │     • Predicts token[i+1] from token[i] (causal)       │
 │     │                                                           │
 │     ├─ PATH B: FRAME-LEVEL SCORES                             │
 │     │  ├─ Input: encoder_hidden_states [1, 18, 512]           │
@@ -122,7 +130,11 @@
 │  4. OUTPUT DICTIONARY                                           │
 │     {                                                           │
 │       'encoder_hidden_states': [1, 18, 512],                   │
-│       'transcription_logits': [1, seq, vocab],                 │
+│       'transcription_logits': [1, seq_len, 51864] (vocab_size) │
+│         ├─ vocab_size = 51864 (Whisper tokenizer)              │
+│         ├─ Training: seq_len from decoder_input_ids            │
+│         ├─ Inference: generated via model.generate()           │
+│         └─ Loss: CrossEntropyLoss after label shifting         │
 │       'word_accuracy_logits': [1, 18],                         │
 │       'word_stress_logits': [1, 18],                           │
 │       'word_total_logits': [1, 18],                            │
@@ -214,19 +226,24 @@ Output: [batch] (one score per utterance)
 │              MULTI-OBJECTIVE TRAINING LOSS                 │
 ├────────────────────────────────────────────────────────────┤
 │                                                            │
-│  Total Loss = w_asr × L_asr                               │
-│             + w_word_acc × L_word_accuracy                │
-│             + w_word_stress × L_word_stress               │
-│             + w_word_total × L_word_total                 │
-│             + w_phone_acc × L_phone_accuracy              │
-│             + w_utt_acc × L_utterance_accuracy            │
-│             + w_utt_flu × L_utterance_fluency             │
-│             + w_utt_pro × L_utterance_prosodic            │
-│             + w_utt_com × L_utterance_completeness        │
-│             + w_utt_tot × L_utterance_total               │
+│  Total Loss = w_transcription × L_transcription (CE)      │
+│             + w_word_acc × L_word_accuracy (MSE)          │
+│             + w_word_stress × L_word_stress (MSE)         │
+│             + w_word_total × L_word_total (MSE)           │
+│             + w_phone_acc × L_phone_accuracy (MSE)        │
+│             + w_utt_acc × L_utterance_accuracy (MSE)      │
+│             + w_utt_flu × L_utterance_fluency (MSE)       │
+│             + w_utt_pro × L_utterance_prosodic (MSE)      │
+│             + w_utt_com × L_utterance_completeness (MSE)  │
+│             + w_utt_tot × L_utterance_total (MSE)         │
 │                                                            │
-│  Where w_* are configurable weights                       │
-│  And L_* are MSE losses                                   │
+│  Where:                                                    │
+│  - w_* are configurable weights from training_config      │
+│  - L_transcription uses CrossEntropyLoss with:            │
+│    • Label shifting (predict next token, causal LM)       │
+│    • Padding token masking (ignore_index=-100)            │
+│  - L_* (assessment) are MSE losses                        │
+│  - Default: w_transcription=1.0, w_assessment_metrics=1.0 │
 │                                                            │
 └────────────────────────────────────────────────────────────┘
 ```
@@ -307,4 +324,107 @@ Output Sizes:
 - Frame scores [1, 18]: float32 = 72 bytes
 - Utterance scores [1]: float32 = 4 bytes
 - Transcription logits [1, 100, 51864]: float32 = ~20 MB (variable)
+```
+
+## Training Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    TRAINING DATA BATCH                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Batch Dictionary Keys:                                     │
+│  ├─ 'input_features': [batch, 80, 3000]                    │
+│  │  └─ Mel-spectrogram from audio loader                   │
+│  │                                                          │
+│  ├─ 'decoder_input_ids': [batch, seq_len]                  │
+│  │  ├─ Token IDs for decoder input (teacher forcing)       │
+│  │  ├─ Example: [2, 1234, 5678, 9012, ...] per utterance   │
+│  │  └─ Used for transcription training (shifted for loss)  │
+│  │                                                          │
+│  ├─ 'labels': [batch, seq_len]                             │
+│  │  ├─ Token IDs for transcription ground truth            │
+│  │  ├─ Padding: -100 (ignored in loss computation)         │
+│  │  └─ Shifted by 1 during loss computation (i+1)          │
+│  │                                                          │
+│  ├─ 'word_accuracy_scores': [batch, var_len]               │
+│  │  ├─ Variable length per example (word count varies)     │
+│  │  ├─ Handled with padding or masking in trainer          │
+│  │  └─ Range: [0.0, 10.0] (pronunciation score)            │
+│  │                                                          │
+│  ├─ 'word_stress_scores': [batch, var_len]                 │
+│  │  └─ Similar to word_accuracy                            │
+│  │                                                          │
+│  ├─ 'word_total_scores': [batch, var_len]                  │
+│  │  └─ Overall word-level score                            │
+│  │                                                          │
+│  ├─ 'phone_accuracy_scores': [batch, var_len]              │
+│  │  ├─ Phone-level scores (finer granularity)              │
+│  │  └─ More variable length than words                     │
+│  │                                                          │
+│  ├─ 'utterance_accuracy': [batch]                          │
+│  │  ├─ Fixed size: one score per utterance                 │
+│  │  └─ Range: [0.0, 10.0]                                  │
+│  │                                                          │
+│  ├─ 'utterance_fluency': [batch]                           │
+│  │  └─ Fluency metric                                      │
+│  │                                                          │
+│  ├─ 'utterance_prosodic': [batch]                          │
+│  │  └─ Prosody/intonation metric                           │
+│  │                                                          │
+│  ├─ 'utterance_completeness': [batch]                      │
+│  │  └─ Completeness metric (usually ~9.6-10.0)             │
+│  │                                                          │
+│  └─ 'utterance_total': [batch]                             │
+│     └─ Overall utterance score                             │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Training Epoch Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              TRAINING EPOCH EXECUTION                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. For each batch in train_loader:                        │
+│     ├─ Move batch tensors to device (GPU/CPU)              │
+│     └─ batch = {k: v.to(device) for k, v in batch}        │
+│                                                             │
+│  2. Forward Pass:                                           │
+│     ├─ model(input_features, decoder_input_ids=...)        │
+│     └─ Returns: predictions dict with all logits           │
+│                                                             │
+│  3. Compute Loss (Multi-objective):                         │
+│     ├─ Transcription (CrossEntropyLoss):                   │
+│     │  ├─ logits [batch, seq-1, vocab] from shift          │
+│     │  ├─ labels [batch, seq-1] (shifted)                  │
+│     │  └─ loss_ce = CE(logits.flatten, labels.flatten)     │
+│     │                                                       │
+│     ├─ Assessment losses (MSE):                            │
+│     │  ├─ word_accuracy: MSE(pred_scores, target_scores)   │
+│     │  ├─ word_stress: MSE(pred_scores, target_scores)     │
+│     │  ├─ word_total: MSE(pred_scores, target_scores)      │
+│     │  ├─ phone_accuracy: MSE(pred_scores, target_scores)  │
+│     │  ├─ utterance_accuracy: MSE(pred_score, target)      │
+│     │  ├─ utterance_fluency: MSE(pred_score, target)       │
+│     │  ├─ utterance_prosodic: MSE(pred_score, target)      │
+│     │  ├─ utterance_completeness: MSE(pred_score, target)  │
+│     │  └─ utterance_total: MSE(pred_score, target)         │
+│     │                                                       │
+│     └─ Total Loss = Σ(weight[i] × loss[i])                │
+│        └─ Weights from config.loss_weights dict            │
+│                                                             │
+│  4. Backward Pass & Optimization:                          │
+│     ├─ loss.backward()  (compute gradients)                │
+│     ├─ clip_grad_norm_(model.parameters(), 1.0)            │
+│     ├─ optimizer.step()  (update weights)                  │
+│     └─ scheduler.step()  (update learning rate)            │
+│                                                             │
+│  5. Logging:                                                │
+│     ├─ Every logging_steps: print loss & LR                │
+│     └─ Progress bar shows: loss, current LR                │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```

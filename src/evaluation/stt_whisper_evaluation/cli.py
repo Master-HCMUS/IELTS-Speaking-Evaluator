@@ -63,14 +63,14 @@ Examples:
     
     # Import the standalone evaluator
     try:
-        from .standalone_whisper_evaluator import StandaloneWhisperModelEvaluator
+        from .core import StandaloneWhisperModelEvaluator
     except ImportError:
         # Fallback for direct execution
         try:
-            from standalone_whisper_evaluator import StandaloneWhisperModelEvaluator
+            from core import StandaloneWhisperModelEvaluator
         except ImportError as e:
             print(f"❌ Failed to import standalone evaluator: {e}")
-            print("Make sure standalone_whisper_evaluator.py is in the same directory")
+            print("Make sure core.py is in the same directory")
             return 1
     
     # Validate model path

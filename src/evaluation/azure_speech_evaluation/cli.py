@@ -10,10 +10,10 @@ import sys
 from pathlib import Path
 
 # Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from config_manager import ConfigManager
-from evaluation.dataset_evaluator import SpeechOcean762Evaluator
+from evaluation.azure_speech_evaluation.core import SpeechOcean762Evaluator
 
 
 def main():
