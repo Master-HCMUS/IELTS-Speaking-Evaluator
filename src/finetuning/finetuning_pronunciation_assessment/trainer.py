@@ -85,7 +85,7 @@ class PronunciationAssessmentTrainer:
         batch: Dict[str, torch.Tensor]
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
-        Compute weighted multi-objective loss.
+        Compute weighted multi-objective loss including transcription.
         
         Args:
             predictions: Model predictions dict
@@ -96,6 +96,31 @@ class PronunciationAssessmentTrainer:
         """
         losses = {}
         weights = self.config.loss_weights
+        
+        # Transcription loss (using cross-entropy on decoder logits)
+        if self.config.use_transcription and "transcription_logits" in predictions:
+            if "labels" in batch and batch["labels"] is not None:
+                # Reshape logits and labels for cross-entropy
+                # logits: [batch, seq_len, vocab_size]
+                # labels: [batch, seq_len]
+                transcription_logits = predictions["transcription_logits"]
+                labels = batch["labels"]
+                
+                # Shift logits and labels for causal language modeling
+                # Logits: [batch, seq_len-1, vocab_size], Labels: [batch, seq_len-1]
+                shift_logits = transcription_logits[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+                
+                # Flatten for cross-entropy
+                batch_size, seq_len, vocab_size = shift_logits.shape
+                loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+                transcription_loss = loss_fct(
+                    shift_logits.view(-1, vocab_size),
+                    shift_labels.view(-1)
+                )
+                
+                weight = weights.get("transcription", 1.0)
+                losses["transcription"] = transcription_loss * weight
         
         # Utterance-level losses (fixed, one per example)
         utterance_targets = {
@@ -197,7 +222,12 @@ class PronunciationAssessmentTrainer:
             
             # Forward pass
             input_features = batch["input_features"]
-            predictions = self.model(input_features)
+            # Pass decoder_input_ids for transcription training if available
+            decoder_input_ids = batch.get("decoder_input_ids", None)
+            predictions = self.model(
+                input_features,
+                decoder_input_ids=decoder_input_ids
+            )
             
             # Compute loss
             loss, losses_dict = self.compute_loss(predictions, batch)
@@ -249,7 +279,12 @@ class PronunciationAssessmentTrainer:
                 
                 # Forward pass
                 input_features = batch["input_features"]
-                predictions = self.model(input_features)
+                # Pass decoder_input_ids for transcription if available
+                decoder_input_ids = batch.get("decoder_input_ids", None)
+                predictions = self.model(
+                    input_features,
+                    decoder_input_ids=decoder_input_ids
+                )
                 
                 # Compute loss
                 loss, _ = self.compute_loss(predictions, batch)

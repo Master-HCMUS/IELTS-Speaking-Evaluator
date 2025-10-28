@@ -145,11 +145,9 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         train_word_level: bool = True,
         train_phone_level: bool = True,
         train_utterance_level: bool = True,
+        train_transcription: bool = True,
         freeze_encoder: bool = False,
         freeze_decoder: bool = False,
-        use_word_level_assessment: bool = None,
-        use_phone_level_assessment: bool = None,
-        use_utterance_level_assessment: bool = None
     ):
         """
         Initialize model with full Whisper (encoder-decoder) + assessment heads.
@@ -159,11 +157,9 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             train_word_level: Whether to train word-level assessment
             train_phone_level: Whether to train phone-level assessment
             train_utterance_level: Whether to train utterance-level assessment
+            train_transcription: Whether to train transcription (decoder)
             freeze_encoder: Whether to freeze encoder weights
             freeze_decoder: Whether to freeze decoder weights
-            use_word_level_assessment: (Deprecated) Use train_word_level instead
-            use_phone_level_assessment: (Deprecated) Use train_phone_level instead
-            use_utterance_level_assessment: (Deprecated) Use train_utterance_level instead
         """
         super().__init__()
         
@@ -173,17 +169,10 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         self._hidden_dim = None
         self._initialized = False
         
-        # Support both naming conventions
-        if use_word_level_assessment is not None:
-            train_word_level = use_word_level_assessment
-        if use_phone_level_assessment is not None:
-            train_phone_level = use_phone_level_assessment
-        if use_utterance_level_assessment is not None:
-            train_utterance_level = use_utterance_level_assessment
-        
         self.train_word_level = train_word_level
         self.train_phone_level = train_phone_level
         self.train_utterance_level = train_utterance_level
+        self.train_transcription = train_transcription
         self.freeze_encoder = freeze_encoder
         self.freeze_decoder = freeze_decoder
     
@@ -292,7 +281,7 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             'encoder_mean': encoder_mean
         }
         
-        # Transcription logits (decoder)
+        # Transcription logits (decoder) - for both inference and training
         if decoder_input_ids is not None:
             decoder = self.model.get_decoder()
             decoder_outputs = decoder(
@@ -300,7 +289,9 @@ class WhisperPronunciationAssessmentModel(nn.Module):
                 encoder_hidden_states=encoder_last_hidden,
                 attention_mask=attention_mask
             )
-            outputs['transcription_logits'] = decoder_outputs.last_hidden_state
+            # Get decoder logits for computing loss
+            lm_logits = self.model.lm_head(decoder_outputs.last_hidden_state)
+            outputs['transcription_logits'] = lm_logits
         
         # Frame-level assessment predictions (word and phone level)
         if self.train_word_level:

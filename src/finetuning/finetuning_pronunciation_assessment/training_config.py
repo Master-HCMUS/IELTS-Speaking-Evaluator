@@ -56,9 +56,13 @@ class PronunciationTrainingConfig:
     def use_utterance_level_assessment(self) -> bool:
         return self.train_utterance_level
     
+    @property
+    def use_transcription(self) -> bool:
+        return self.include_transcription
+    
     # Loss weights for multi-objective training
     loss_weights: Dict[str, float] = field(default_factory=lambda: {
-        'asr': 1.0,                    # Transcription loss
+        'transcription': 1.0,          # Transcription loss (decoder)
         'word_accuracy': 1.0,          # Word-level accuracy
         'word_stress': 0.5,            # Word-level stress
         'word_total': 1.0,             # Word-level total
