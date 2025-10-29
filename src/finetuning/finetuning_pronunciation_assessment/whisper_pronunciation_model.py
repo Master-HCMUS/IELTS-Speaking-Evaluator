@@ -169,7 +169,7 @@ class PhonemeDecoderCTC(nn.Module):
             zero_infinity=True
         )
         
-        logger.info(f"PhonemeDecoderCTC initialized with {num_phonemes} phonemes, blank={blank}")
+        print(f"PhonemeDecoderCTC initialized with {num_phonemes} phonemes, blank={blank}")
     
     def forward(
         self,
@@ -326,7 +326,7 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         # Now import transformers and load full WhisperForConditionalGeneration
         try:
             from transformers import WhisperForConditionalGeneration
-            logger.info(f"Loading WhisperForConditionalGeneration: {self.model_name}")
+            print(f"Loading WhisperForConditionalGeneration: {self.model_name}")
             self.model = WhisperForConditionalGeneration.from_pretrained(self.model_name)
         except Exception as e:
             logger.error(f"Failed to load WhisperForConditionalGeneration: {e}")
@@ -342,14 +342,14 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             encoder = self.model.get_encoder()
             for param in encoder.parameters():
                 param.requires_grad = False
-            logger.info("Encoder weights frozen")
+            print("Encoder weights frozen")
         
         # Freeze decoder if requested
         if self.freeze_decoder:
             decoder = self.model.get_decoder()
             for param in decoder.parameters():
                 param.requires_grad = False
-            logger.info("Decoder weights frozen")
+            print("Decoder weights frozen")
         
         # Frame-level assessment heads (word and phone level)
         if self.train_word_level:
