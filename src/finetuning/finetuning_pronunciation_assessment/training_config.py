@@ -61,6 +61,8 @@ class PronunciationTrainingConfig:
         return self.include_transcription
     
     # Loss weights for multi-objective training
+    # Note: Completeness uses Huber Loss (not MSE) to handle extreme class imbalance
+    # where 99.66% of samples have completeness=10 and <0.34% have other values
     loss_weights: Dict[str, float] = field(default_factory=lambda: {
         'transcription': 1.0,          # Transcription loss (decoder)
         'word_accuracy': 1.0,          # Word-level accuracy
@@ -70,7 +72,7 @@ class PronunciationTrainingConfig:
         'utterance_accuracy': 1.0,     # Utterance accuracy
         'utterance_fluency': 1.0,      # Utterance fluency
         'utterance_prosodic': 1.0,     # Utterance prosodic
-        'utterance_completeness': 0.1, # Lower weight (99.6% is 10)
+        'utterance_completeness': 1.0, # Increased from 0.1 to 1.0 (Huber Loss handles imbalance)
         'utterance_total': 1.0         # Utterance total
     })
     
@@ -157,7 +159,7 @@ def get_production_config() -> PronunciationTrainingConfig:
         max_eval_samples=None,
         batch_size=8,
         eval_batch_size=16,
-        num_epochs=30,
+        num_epochs=20,
         learning_rate=5e-6,
         warmup_steps=1000,
         gradient_accumulation_steps=2,

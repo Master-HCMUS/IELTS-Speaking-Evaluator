@@ -66,7 +66,7 @@ class FrameLevelAssessmentHead(nn.Module):
             x: Input tensor [batch, seq_len, hidden_dim]
             
         Returns:
-            Scores tensor [batch, seq_len] - one score per frame (scaled to [0, 10])
+            Scores tensor [batch, seq_len] - one score per frame (normalized to [0, 1])
         """
         # Save original shape for reshaping later
         batch_size, seq_len, hidden_dim = x.shape
@@ -82,9 +82,9 @@ class FrameLevelAssessmentHead(nn.Module):
         x = self.relu(self.bn2(self.fc2(x)))
         x = self.dropout2(x)
         
-        # Output layer with sigmoid scaling to [0, 10]
+        # Output layer with sigmoid normalization to [0, 1]
         x = self.fc3(x)
-        x = self.sigmoid(x) * 10.0
+        x = self.sigmoid(x)
         
         # Reshape back: [batch*seq_len, 1] -> [batch, seq_len]
         x = x.reshape(batch_size, seq_len)
@@ -125,7 +125,7 @@ class UtteranceLevelAssessmentHead(nn.Module):
             x: Input tensor [batch, hidden_dim] (mean-pooled)
             
         Returns:
-            Scores tensor [batch] - one score per utterance (scaled to [0, 10])
+            Scores tensor [batch] - one score per utterance (normalized to [0, 1])
         """
         # First layer
         x = self.relu(self.bn1(self.fc1(x)))
@@ -135,44 +135,12 @@ class UtteranceLevelAssessmentHead(nn.Module):
         x = self.relu(self.bn2(self.fc2(x)))
         x = self.dropout2(x)
         
-        # Output layer with sigmoid scaling to [0, 10]
+        # Output layer with sigmoid normalization to [0, 1]
         x = self.fc3(x)
-        x = self.sigmoid(x) * 10.0
+        x = self.sigmoid(x)
         
         return x.squeeze(-1)  # [batch]
 
-
-class PronunciationAssessmentHead(nn.Module):
-    """Assessment head for predicting pronunciation scores."""
-    
-    def __init__(self, input_dim: int, hidden_dim: int = 256):
-        """
-        Initialize assessment head.
-        
-        Args:
-            input_dim: Encoder hidden dimension
-            hidden_dim: Hidden dimension for the head
-        """
-        super().__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.dropout = nn.Dropout(0.1)
-        self.fc2 = nn.Linear(hidden_dim, 1)
-        self.relu = nn.ReLU()
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass.
-        
-        Args:
-            x: Input tensor [batch, seq_len, hidden_dim]
-            
-        Returns:
-            Scores tensor [batch, seq_len] or [batch] after pooling
-        """
-        x = self.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = self.fc2(x)
-        return x.squeeze(-1)
 
 
 class WhisperPronunciationAssessmentModel(nn.Module):
