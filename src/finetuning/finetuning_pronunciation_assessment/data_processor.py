@@ -249,93 +249,13 @@ class SpeechOcean762DataProcessor:
             logger.info(f"Processing {split_name} split ({len(split_data)} examples)...")
             
             try:
-                from datasets.features import Audio
-                
-                # Get original schema
-                original_schema = split_data.features
-                
-                # Check if audio column exists and is Audio type
-                if "audio" in original_schema and isinstance(original_schema["audio"], Audio):
-                    # CRITICAL: We need to process the raw audio before .map() tries to format it
-                    # Use a custom function that extracts features from raw audio bytes
-                    
-                    def extract_features_from_raw(example):
-                        """Extract audio features from raw data without triggering decoder."""
-                        try:
-                            # Access raw audio data directly from Arrow table
-                            # This bypasses the Audio feature decoder
-                            audio_dict = example["audio"]
-                            
-                            # If it's already decoded to dict, use it directly
-                            if isinstance(audio_dict, dict) and "array" in audio_dict:
-                                audio_array = np.array(audio_dict["array"], dtype=np.float32)
-                                sample_rate = audio_dict.get("sampling_rate", self.TARGET_SAMPLE_RATE)
-                            else:
-                                # Fallback: create silence if we can't decode
-                                logger.warning(f"Could not decode audio in {split_name}")
-                                audio_array = np.zeros(16000, dtype=np.float32)
-                                sample_rate = self.TARGET_SAMPLE_RATE
-                            
-                            # Extract mel-spectrogram
-                            input_features = self._extract_mel_spectrogram(audio_array, sample_rate)
-                            
-                            # Prepare result
-                            result = {"input_features": input_features}
-                            
-                            # Copy and normalize all other fields
-                            assessment_score_fields = {
-                                "utterance_accuracy", "utterance_fluency", "utterance_prosodic",
-                                "utterance_completeness", "utterance_total",
-                                "word_accuracy_scores", "word_stress_scores", "word_total_scores",
-                                "phone_accuracy_scores"
-                            }
-                            
-                            for key, value in example.items():
-                                if key in ["audio", "words", "alignment"]:
-                                    continue
-                                elif key in assessment_score_fields:
-                                    if isinstance(value, (list, tuple)):
-                                        result[key] = [
-                                            self.normalize_assessment_score(score)
-                                            for score in value
-                                        ]
-                                    elif isinstance(value, (int, float)):
-                                        result[key] = self.normalize_assessment_score(value)
-                                    else:
-                                        result[key] = value
-                                else:
-                                    result[key] = value
-                            
-                            return result
-                        
-                        except Exception as e:
-                            logger.warning(f"Error processing example: {e}")
-                            result = {"input_features": np.zeros((80, 3000), dtype=np.float32)}
-                            for key, value in example.items():
-                                if key not in ["audio", "words", "alignment"]:
-                                    try:
-                                        result[key] = value
-                                    except:
-                                        pass
-                            return result
-                    
-                    # Process WITHOUT formatting first - this avoids the decoder
-                    processed = split_data.map(
-                        extract_features_from_raw,
-                        batched=False,
-                        num_proc=1,  # Use single process to avoid multiprocessing issues
-                        remove_columns=["audio"],
-                        desc=f"Processing {split_name}"
-                    )
-                else:
-                    # No Audio feature, use original preprocess function
-                    processed = split_data.map(
-                        preprocess_function,
-                        batched=False,
-                        num_proc=None,
-                        remove_columns=["audio"] if "audio" in split_data.column_names else [],
-                        desc=f"Processing {split_name}"
-                    )
+                processed = split_data.map(
+                    preprocess_function,
+                    batched=False,  # CRITICAL: Process one example at a time
+                    num_proc=None,  # CRITICAL for Kaggle - disable multiprocessing
+                    remove_columns=["audio"],  # Remove after processing
+                    desc=f"Processing {split_name}"
+                )
                 
                 # Remove unnecessary columns
                 columns_to_remove = [col for col in processed.column_names 
@@ -351,4 +271,3 @@ class SpeechOcean762DataProcessor:
                 raise
         
         return DatasetDict(processed_datasets)
-
