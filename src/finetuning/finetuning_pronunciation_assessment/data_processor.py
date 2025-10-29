@@ -204,9 +204,7 @@ class SpeechOcean762DataProcessor:
                 
                 # Copy and normalize assessment scores
                 assessment_score_keys = [
-                    "accuracy", "fluency", "prosodic", "completeness", "total",
-                    "word_accuracy", "word_stress", "word_total",
-                    "phone_accuracy"
+                    "accuracy", "fluency", "prosodic", "completeness", "total"
                 ]
                 
                 for key in example.keys():
