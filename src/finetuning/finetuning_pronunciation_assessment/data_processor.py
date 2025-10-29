@@ -35,34 +35,6 @@ class SpeechOcean762DataProcessor:
         self.processor_name = processor_name
         logger.info(f"Processor initialized: {processor_name}")
     
-    @staticmethod
-    def normalize_assessment_score(score, min_val: float = 0, max_val: float = 10) -> float:
-        """
-        Normalize assessment score to [0, 1] range.
-        
-        Converts ground truth scores from [0, 10] to [0, 1] to match model output range.
-        This ensures consistent loss computation with normalized model predictions.
-        
-        Args:
-            score: Score value (typically in [0, 10] range)
-            min_val: Minimum value of the original scale (default: 0)
-            max_val: Maximum value of the original scale (default: 10)
-            
-        Returns:
-            Normalized score in [0, 1] range
-            
-        Example:
-            >>> normalize_assessment_score(5.0)  # Returns 0.5
-            >>> normalize_assessment_score(10.0) # Returns 1.0
-        """
-        if max_val <= min_val:
-            logger.warning(f"Invalid scale: max_val ({max_val}) <= min_val ({min_val})")
-            return 0.0
-        
-        normalized = (score - min_val) / (max_val - min_val)
-        # Clip to ensure strictly [0, 1]
-        return float(np.clip(normalized, 0.0, 1.0))
-    
     def _extract_mel_spectrogram(self, audio_array: np.ndarray, sampling_rate: int) -> np.ndarray:
         """
         Extract mel-spectrogram directly using librosa (no transformers import needed).
@@ -192,57 +164,25 @@ class SpeechOcean762DataProcessor:
                     "input_features": input_features,
                 }
                 
-                # Copy all fields and normalize assessment scores
-                assessment_score_fields = {
-                    # Utterance-level scores (scalar per utterance)
-                    "utterance_accuracy", "utterance_fluency", "utterance_prosodic",
-                    "utterance_completeness", "utterance_total",
-                    # Word-level scores (lists of scores per word)
-                    "word_accuracy_scores", "word_stress_scores", "word_total_scores",
-                    # Phone-level scores (lists of scores per phone)
-                    "phone_accuracy_scores"
-                }
-                
-                for key, value in example.items():
-                    if key in ["audio", "words", "alignment"]:
-                        # Skip these fields
-                        continue
-                    elif key in assessment_score_fields:
-                        # Normalize assessment scores from [0, 10] to [0, 1]
-                        if isinstance(value, (list, tuple)):
-                            # For word/phone-level scores (lists)
-                            normalized_value = [
-                                self.normalize_assessment_score(score)
-                                for score in value
-                            ]
-                            result[key] = normalized_value
-                        elif isinstance(value, (int, float)):
-                            # For utterance-level scores (scalar)
-                            result[key] = self.normalize_assessment_score(value)
-                        else:
-                            result[key] = value
-                    else:
-                        # Keep other fields as-is (text, IDs, etc.)
-                        result[key] = value
+                # Copy assessment scores
+                for key in example.keys():
+                    if key not in ["audio", "words", "alignment"]:
+                        result[key] = example[key]
                 
                 return result
             
             except Exception as e:
-                logger.warning(f"Error processing example: {e}")
-                print(f"Error: {e}")
+                logger.warning(f"Error processing audio: {e}")
                 # Return fallback with zero features
                 result = {
                     "input_features": np.zeros((80, 3000), dtype=np.float32),
                 }
-                for key, value in example.items():
+                for key in example.keys():
                     if key not in ["audio", "words", "alignment"]:
-                        try:
-                            result[key] = value
-                        except:
-                            pass
+                        result[key] = example[key]
                 return result
         
-        # Process each split - CRITICAL: Remove audio column BEFORE any formatting
+        # Process each split - CRITICAL: num_proc=None and batched=False to avoid codec issues
         processed_datasets = {}
         
         for split_name, split_data in datasets.items():
