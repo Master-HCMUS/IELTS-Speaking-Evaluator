@@ -30,10 +30,17 @@ class SpeechOcean762DataProcessor:
     N_FFT = 400
     HOP_LENGTH = 160
     
-    def __init__(self, processor_name: str = "openai/whisper-tiny"):
-        """Initialize processor (model name kept for compatibility)."""
+    def __init__(self, processor_name: str = "openai/whisper-tiny", normalize_scores: bool = True):
+        """
+        Initialize processor.
+        
+        Args:
+            processor_name: Model name for compatibility
+            normalize_scores: Whether to normalize assessment scores to [0, 1]
+        """
         self.processor_name = processor_name
-        logger.info(f"Processor initialized: {processor_name}")
+        self.normalize_scores = normalize_scores
+        logger.info(f"Processor initialized: {processor_name} (normalize_scores={normalize_scores})")
     
     def _extract_mel_spectrogram(self, audio_array: np.ndarray, sampling_rate: int) -> np.ndarray:
         """
@@ -77,6 +84,37 @@ class SpeechOcean762DataProcessor:
             mel_spec_db = mel_spec_db[:, :3000]
         
         return mel_spec_db.astype(np.float32)
+    
+    @staticmethod
+    def normalize_assessment_score(score: float, min_val: float = 0, max_val: float = 10) -> float:
+        """
+        Normalize score to [0, 1] range for consistent model training.
+        
+        SpeechOcean762 scores are typically in range [0, 10], this normalizes to [0, 1].
+        
+        Args:
+            score: Score to normalize
+            min_val: Minimum value in original scale (default: 0)
+            max_val: Maximum value in original scale (default: 10)
+            
+        Returns:
+            Normalized score in [0, 1]
+            
+        Raises:
+            ValueError: If max_val <= min_val or score is invalid
+        """
+        if max_val <= min_val:
+            raise ValueError(f"max_val ({max_val}) must be > min_val ({min_val})")
+        
+        if score is None or (isinstance(score, float) and np.isnan(score)):
+            logger.warning(f"Invalid score encountered: {score}, returning 0.5 (middle value)")
+            return 0.5
+        
+        # Clamp score to valid range before normalizing
+        clamped_score = np.clip(score, min_val, max_val)
+        normalized = (clamped_score - min_val) / (max_val - min_val)
+        
+        return float(normalized)
     
     def load_dataset(
         self,
@@ -164,10 +202,28 @@ class SpeechOcean762DataProcessor:
                     "input_features": input_features,
                 }
                 
-                # Copy assessment scores
+                # Copy and normalize assessment scores
+                assessment_score_keys = [
+                    "accuracy", "fluency", "prosodic", "completeness", "total",
+                    "word_accuracy", "word_stress", "word_total",
+                    "phone_accuracy"
+                ]
+                
                 for key in example.keys():
                     if key not in ["audio", "words", "alignment"]:
-                        result[key] = example[key]
+                        # Normalize assessment scores if enabled
+                        if self.normalize_scores and key in assessment_score_keys:
+                            try:
+                                score_value = example[key]
+                                if isinstance(score_value, (int, float)):
+                                    result[key] = self.normalize_assessment_score(score_value)
+                                else:
+                                    result[key] = example[key]
+                            except (ValueError, TypeError) as e:
+                                logger.warning(f"Failed to normalize score {key}={example[key]}: {e}")
+                                result[key] = example[key]
+                        else:
+                            result[key] = example[key]
                 
                 return result
             
