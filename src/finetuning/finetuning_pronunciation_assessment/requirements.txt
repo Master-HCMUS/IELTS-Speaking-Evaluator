@@ -1,6 +1,6 @@
 # Core dependencies for pronunciation assessment fine-tuning
 # Optimized for Kaggle environment
-torch>=2.0.0,<2.2.0
+torch>=2.0.0
 torchaudio>=2.0.0
 transformers>=4.30.0,<4.40.0
 datasets>=2.10.0
