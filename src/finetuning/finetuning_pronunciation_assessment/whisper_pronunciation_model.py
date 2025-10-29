@@ -565,3 +565,255 @@ class WhisperPronunciationAssessmentModel(nn.Module):
                 scores['utterance_level']['total'] = predictions['utterance_total_logits']
         
         return scores
+    
+    def generate_phonemes(
+        self,
+        input_features: torch.Tensor,
+        return_confidence: bool = True,
+        return_frame_level: bool = False,
+        collapse_repeated: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Generate phoneme predictions from audio features.
+        
+        This is the main inference method for phoneme generation. It takes audio
+        features and returns decoded phoneme symbols with confidence scores.
+        
+        Args:
+            input_features: Mel-spectrogram features [batch, 80, 3000]
+            return_confidence: Include confidence scores [0, 10] for each phoneme
+            return_frame_level: Include frame-level predictions and confidences
+            collapse_repeated: Apply CTC rule to collapse repeated phonemes
+            
+        Returns:
+            Dictionary (single sample) or list of dicts (batch) with:
+            {
+                'phoneme_ids': List[int],              # Token IDs [0-128]
+                'phoneme_symbols': List[str],          # ARPABET symbols
+                'phoneme_confidence': List[float],     # Confidence [0-10]
+                'num_phonemes': int,                   # Number of phonemes
+                'sequence_length': int,                # Total frames
+                'blank_frames_removed': int,           # Frames that were blank
+                'frame_confidence': Optional[List[float]]  # Per-frame scores
+            }
+            
+        Example:
+            >>> result = model.generate_phonemes(input_features)
+            >>> print(result['phoneme_symbols'])
+            ['W', 'AE1', 'D']
+            >>> print(result['phoneme_confidence'])
+            [9.2, 8.7, 9.1]
+        """
+        self._initialize_model()
+        self.eval()
+        
+        with torch.no_grad():
+            predictions = self.forward(input_features)
+        
+        if 'phoneme_logits' not in predictions:
+            logger.warning("Model does not have phoneme_logits. Enable train_phoneme_symbols.")
+            return None
+        
+        phoneme_logits = predictions['phoneme_logits']  # [batch, seq_len, 129]
+        batch_size = phoneme_logits.shape[0]
+        
+        results = []
+        for batch_idx in range(batch_size):
+            logits_seq = phoneme_logits[batch_idx]  # [seq_len, 129]
+            
+            # Greedy decoding: argmax per frame
+            phoneme_ids = logits_seq.argmax(dim=-1)  # [seq_len]
+            
+            # Collapse repeated tokens (CTC rule) and remove blanks
+            decoded_ids = self._collapse_and_filter_tokens(
+                phoneme_ids.cpu().numpy().tolist(),
+                collapse_repeated=collapse_repeated
+            )
+            
+            # Convert token IDs to phoneme symbols
+            phoneme_symbols = self.decode_phoneme_ids_to_symbols(decoded_ids)
+            
+            # Compute confidence scores
+            phoneme_confidence = None
+            if return_confidence:
+                phoneme_confidence = self.compute_phoneme_confidence(
+                    logits_seq, phoneme_ids.cpu(), decoded_ids
+                )
+            
+            # Frame-level predictions (optional)
+            frame_confidence = None
+            if return_frame_level:
+                frame_probs = torch.softmax(logits_seq, dim=-1)
+                frame_confidence = (frame_probs.max(dim=-1).values.cpu() * 10).tolist()
+            
+            # Count blank frames removed
+            blank_count = (phoneme_ids == 0).sum().item()
+            repeat_count = self._count_repeated_frames(phoneme_ids.cpu().numpy().tolist())
+            
+            result = {
+                'phoneme_ids': decoded_ids,
+                'phoneme_symbols': phoneme_symbols,
+                'phoneme_confidence': phoneme_confidence,
+                'num_phonemes': len(decoded_ids),
+                'sequence_length': phoneme_ids.shape[0],
+                'blank_frames_removed': blank_count,
+                'repeated_frames_collapsed': repeat_count if collapse_repeated else 0
+            }
+            
+            if return_frame_level:
+                result['frame_confidence'] = frame_confidence
+            
+            results.append(result)
+        
+        # Return single dict for batch_size=1, list for batch_size>1
+        return results[0] if batch_size == 1 else results
+    
+    def decode_phoneme_ids_to_symbols(
+        self,
+        phoneme_ids: List[int]
+    ) -> List[str]:
+        """
+        Convert phoneme token IDs to ARPABET symbols.
+        
+        Args:
+            phoneme_ids: List of token IDs in range [0, 128]
+            
+        Returns:
+            List of phoneme symbol strings (e.g., ["W", "AE1", "D"])
+            
+        Example:
+            >>> ids = [1, 15, 45]
+            >>> symbols = model.decode_phoneme_ids_to_symbols(ids)
+            >>> print(symbols)
+            ['W', 'AE1', 'B']
+        """
+        try:
+            from phoneme_tokenizer import ARPABET_VOCAB
+        except ImportError:
+            # Fallback: use local import
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).parent))
+            from phoneme_tokenizer import ARPABET_VOCAB
+        
+        symbols = []
+        for pid in phoneme_ids:
+            # Clamp to valid range
+            pid_clamped = max(0, min(pid, len(ARPABET_VOCAB) - 1))
+            symbol = ARPABET_VOCAB[pid_clamped]
+            symbols.append(symbol)
+        
+        return symbols
+    
+    def compute_phoneme_confidence(
+        self,
+        phoneme_logits_seq: torch.Tensor,  # [seq_len, 129]
+        phoneme_ids_seq: torch.Tensor,     # [seq_len]
+        decoded_ids: List[int]
+    ) -> List[float]:
+        """
+        Compute confidence scores for decoded phoneme sequence.
+        
+        Extracts the softmax probability of the predicted phoneme at each
+        decoded position and scales to [0, 10] range.
+        
+        Args:
+            phoneme_logits_seq: Logits for one sample [seq_len, 129]
+            phoneme_ids_seq: Greedy-decoded IDs [seq_len]
+            decoded_ids: Post-processed IDs (blanks removed, repeats collapsed)
+            
+        Returns:
+            List of confidence scores [0, 10] for each decoded phoneme
+            
+        Example:
+            >>> logits = torch.randn(1500, 129)
+            >>> ids = torch.argmax(logits, dim=-1)
+            >>> decoded = [1, 15, 45]
+            >>> confidence = model.compute_phoneme_confidence(logits, ids, decoded)
+            >>> print(confidence)
+            [9.2, 8.7, 9.1]
+        """
+        # Convert logits to probabilities
+        probs = torch.softmax(phoneme_logits_seq, dim=-1)  # [seq_len, 129]
+        
+        # Get max probability per frame
+        max_probs = probs.max(dim=-1).values  # [seq_len]
+        
+        # Extract confidence for each decoded phoneme
+        # by tracking which frames contribute to each phoneme
+        confidence_scores = []
+        
+        current_seq_idx = 0
+        last_id = -1
+        
+        for frame_idx in range(len(phoneme_ids_seq)):
+            token_id = phoneme_ids_seq[frame_idx].item()
+            
+            # Skip blanks (ID=0)
+            if token_id == 0:
+                continue
+            
+            # Skip repeated tokens (CTC rule)
+            if token_id == last_id:
+                continue
+            
+            # This frame contributes to a phoneme
+            confidence = (max_probs[frame_idx].item() * 10)
+            confidence_scores.append(confidence)
+            last_id = token_id
+        
+        return confidence_scores
+    
+    @staticmethod
+    def _collapse_and_filter_tokens(
+        token_ids: List[int],
+        blank_id: int = 0,
+        collapse_repeated: bool = True
+    ) -> List[int]:
+        """
+        Collapse repeated tokens (CTC rule) and remove blanks.
+        
+        Args:
+            token_ids: Sequence of token IDs
+            blank_id: ID representing blank (default 0 for CTC)
+            collapse_repeated: Whether to collapse repeated tokens
+            
+        Returns:
+            Filtered and optionally collapsed token IDs
+            
+        Example:
+            >>> ids = [0, 1, 1, 1, 15, 15, 45, 0, 0]
+            >>> result = WhisperPronunciationAssessmentModel._collapse_and_filter_tokens(ids)
+            >>> print(result)
+            [1, 15, 45]
+        """
+        # First pass: collapse repeated tokens if enabled
+        if collapse_repeated:
+            collapsed = []
+            for token_id in token_ids:
+                if len(collapsed) == 0 or token_id != collapsed[-1]:
+                    collapsed.append(token_id)
+            token_ids = collapsed
+        
+        # Second pass: remove blanks
+        filtered = [tid for tid in token_ids if tid != blank_id]
+        
+        return filtered
+    
+    @staticmethod
+    def _count_repeated_frames(token_ids: List[int]) -> int:
+        """
+        Count how many frames would be collapsed due to repetition.
+        
+        Args:
+            token_ids: Sequence of token IDs
+            
+        Returns:
+            Number of frames that are repeats of the previous frame
+        """
+        count = 0
+        for i in range(1, len(token_ids)):
+            if token_ids[i] == token_ids[i-1]:
+                count += 1
+        return count
+
