@@ -214,8 +214,9 @@ class PhonemeDecoderCTC(nn.Module):
             try:
                 loss = self.ctc_loss_fn(log_probs, phoneme_ids, input_lengths, target_lengths)
                 outputs['loss'] = loss
+                print(f"CTC loss computed")
             except Exception as e:
-                logger.warning(f"CTC loss computation failed: {e}")
+                print(f"CTC loss computation failed: {e}")
                 outputs['loss'] = torch.tensor(0.0, device=encoder_hidden.device, requires_grad=True)
         
         return outputs
