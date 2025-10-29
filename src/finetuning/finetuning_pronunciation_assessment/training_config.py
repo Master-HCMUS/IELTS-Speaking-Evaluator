@@ -158,7 +158,7 @@ def get_production_config() -> PronunciationTrainingConfig:
         output_dir="models/pronunciation_production",
         max_train_samples=None,  # Use full dataset
         max_eval_samples=None,
-        batch_size=8,
+        batch_size=16,
         eval_batch_size=16,
         num_epochs=10,
         learning_rate=5e-6,

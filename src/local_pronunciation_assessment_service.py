@@ -14,11 +14,18 @@ import torch.nn as nn
 import numpy as np
 import librosa
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
 import logging
 from transformers import WhisperProcessor
 
 logger = logging.getLogger(__name__)
+
+# ARPAbet phoneme vocabulary (same as in phoneme_tokenizer.py)
+PHONEME_VOCAB = {
+    'AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY',
+    'F', 'G', 'HH', 'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P',
+    'R', 'S', 'SH', 'T', 'TH', 'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH'
+}
 
 
 class LocalPronunciationAssessmentService:
@@ -351,6 +358,36 @@ class LocalPronunciationAssessmentService:
                 if similarity < 0.75:
                     result = self._apply_content_penalty(result, similarity)
             
+            # Extract and decode phoneme predictions if available
+            try:
+                # Get full predictions to access phoneme logits
+                with torch.no_grad():
+                    predictions = self.model.forward(mel_spec)
+                
+                # Check if phoneme_logits are available
+                if 'phoneme_logits' in predictions:
+                    phoneme_logits = predictions['phoneme_logits'].cpu().numpy()
+                    phoneme_result = self._decode_phonemes(phoneme_logits)
+                    result['phonemes'] = phoneme_result
+                else:
+                    # Phoneme decoder not available
+                    result['phonemes'] = {
+                        'phonemes': [],
+                        'frames_detail': [],
+                        'num_frames': 0,
+                        'avg_confidence': 0.0,
+                        'available': False
+                    }
+            except Exception as e:
+                logger.warning(f"Could not extract phoneme predictions: {e}")
+                result['phonemes'] = {
+                    'phonemes': [],
+                    'frames_detail': [],
+                    'num_frames': 0,
+                    'avg_confidence': 0.0,
+                    'available': False
+                }
+            
             logger.info(f"Assessment complete. Utterance scores: {result['scores']['utterance_level']}")
             logger.info(f"Transcript: {transcript}")
             return result
@@ -429,6 +466,65 @@ class LocalPronunciationAssessmentService:
                 normalized[key] = value
         
         return normalized
+    
+    def _decode_phonemes(self, phoneme_logits: np.ndarray, confidence_threshold: float = 0.5) -> Dict[str, Any]:
+        """
+        Decode phoneme logits to phoneme symbols and confidence scores.
+        
+        Args:
+            phoneme_logits: Frame-level phoneme logits [seq_len, num_phonemes] or [batch, seq_len, num_phonemes]
+            confidence_threshold: Minimum confidence to include phoneme
+            
+        Returns:
+            Dictionary with phoneme symbols, confidences, and frame indices
+        """
+        try:
+            # Handle batch dimension
+            if phoneme_logits.ndim == 3:
+                phoneme_logits = phoneme_logits[0]  # Take first sample
+            
+            # Convert logits to probabilities via softmax
+            probs = torch.softmax(torch.from_numpy(phoneme_logits).float(), dim=-1)
+            
+            # Get top-1 predictions
+            confidences, predictions = torch.max(probs, dim=-1)
+            confidences = confidences.numpy()
+            predictions = predictions.numpy()
+            
+            # Phoneme index to symbol mapping (ARPAbet)
+            phoneme_list = sorted(PHONEME_VOCAB)
+            phoneme_map = {i: ph for i, ph in enumerate(phoneme_list)}
+            
+            # Decode predictions to phoneme symbols
+            phonemes = []
+            frames_with_confidence = []
+            
+            for frame_idx, (pred_idx, conf) in enumerate(zip(predictions, confidences)):
+                # Skip low confidence predictions
+                if conf >= confidence_threshold:
+                    phoneme_symbol = phoneme_map.get(int(pred_idx), 'UNK')
+                    phonemes.append(phoneme_symbol)
+                    frames_with_confidence.append({
+                        'frame': frame_idx,
+                        'phoneme': phoneme_symbol,
+                        'confidence': float(conf)
+                    })
+            
+            return {
+                'phonemes': phonemes,
+                'frames_detail': frames_with_confidence,
+                'num_frames': len(predictions),
+                'avg_confidence': float(np.mean(confidences))
+            }
+        
+        except Exception as e:
+            logger.error(f"Error decoding phonemes: {e}")
+            return {
+                'phonemes': [],
+                'frames_detail': [],
+                'num_frames': 0,
+                'avg_confidence': 0.0
+            }
     
     def _calculate_text_similarity(self, text1: str, text2: str) -> float:
         """

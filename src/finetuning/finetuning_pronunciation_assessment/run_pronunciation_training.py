@@ -241,17 +241,17 @@ def main():
         batch_size=config.batch_size,
         shuffle=True,
         collate_fn=data_collator,
-        num_workers=0  # Important for Kaggle
+        num_workers=2  # Important for Kaggle
     )
     
     val_loader = None
     if "test" in processed_datasets:
         val_loader = DataLoader(
             processed_datasets["test"],
-            batch_size=config.batch_size,
+            batch_size=config.eval_batch_size,
             shuffle=False,
             collate_fn=data_collator,
-            num_workers=0
+            num_workers=2
         )
     
     logger.info(f"Train loader: {len(train_loader)} batches")

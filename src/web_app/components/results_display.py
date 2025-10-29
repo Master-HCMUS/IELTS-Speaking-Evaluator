@@ -4,6 +4,7 @@ import streamlit as st
 import numpy as np
 from typing import Dict, Any, Tuple
 from difflib import SequenceMatcher
+from .phoneme_display import PhonemeDisplayComponent
 
 
 class ResultsDisplayComponent:
@@ -244,6 +245,7 @@ class ResultsDisplayComponent:
             transcript = data["transcript"]
             utterance_scores = data["utterance_level"]
             word_scores = data["word_level"]
+            phone_scores = data["phone_level"]
             
             # Check penalty
             content_match = result.get("content_match")
@@ -268,6 +270,10 @@ class ResultsDisplayComponent:
             word_accuracy_frames = word_scores.get("accuracy", [])
             ResultsDisplayComponent.render_word_analysis(transcript, word_scores)
             
+            # Phoneme analysis (if available)
+            phone_accuracy_frames = phone_scores.get("accuracy", [])
+            PhonemeDisplayComponent.render_phonemes_section(result, transcript, phone_accuracy_frames)
+            
             # Statistics
             if word_accuracy_frames:
                 ResultsDisplayComponent.render_statistics(word_accuracy_frames)
@@ -283,3 +289,4 @@ class ResultsDisplayComponent:
         else:
             error = result.get("error", "Unknown error")
             st.error(f"❌ Assessment failed: {error}")
+
