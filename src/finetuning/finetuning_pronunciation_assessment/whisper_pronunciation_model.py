@@ -374,10 +374,10 @@ class WhisperPronunciationAssessmentModel(nn.Module):
                 num_phonemes=self.num_phonemes,
                 blank=0
             )
-            logger.info(f"Phoneme decoder (CTC) initialized with {self.num_phonemes} phonemes")
+            print(f"Phoneme decoder (CTC) initialized with {self.num_phonemes} phonemes")
         
         self._initialized = True
-        logger.info("Model initialized successfully")
+        print("Model initialized successfully")
 
     
     def forward(
