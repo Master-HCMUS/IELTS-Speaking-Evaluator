@@ -206,6 +206,12 @@ class PronunciationAssessmentTrainer:
                         weight = weights.get("phone_accuracy", 1.0)
                         losses["phone_accuracy"] = loss_val * weight
         
+        # Phoneme loss (CTC-based, for predicting phone symbols)
+        if "phoneme_loss" in predictions and predictions["phoneme_loss"] is not None:
+            phoneme_loss = predictions["phoneme_loss"]
+            weight = weights.get("phoneme", 0.5)
+            losses["phoneme"] = phoneme_loss * weight
+        
         # Total loss
         if losses:
             total_loss = sum(losses.values())

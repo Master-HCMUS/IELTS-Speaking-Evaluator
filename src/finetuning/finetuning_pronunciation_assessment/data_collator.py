@@ -100,4 +100,30 @@ class PronunciationAssessmentDataCollator:
                 scores = np.array([ex[key] for ex in batch], dtype=np.float32)
                 collated[key] = torch.from_numpy(scores).float()
         
+        # Handle phoneme IDs (for CTC phoneme decoder)
+        if "phoneme_ids" in batch[0]:
+            phoneme_ids = [ex["phoneme_ids"] for ex in batch]
+            # Pad phoneme IDs to max length with 72 (PAD token ID)
+            max_phoneme_length = max(len(p) for p in phoneme_ids)
+            padded_phoneme_ids = np.full(
+                (batch_size, max_phoneme_length),
+                72,  # PAD token ID
+                dtype=np.int32
+            )
+            for i, phoneme_id in enumerate(phoneme_ids):
+                padded_phoneme_ids[i, :len(phoneme_id)] = phoneme_id
+            collated["phoneme_ids"] = torch.from_numpy(padded_phoneme_ids).long()
+            
+            # Also collect phoneme sequence lengths (before padding)
+            phoneme_lengths = np.array(
+                [len(ex["phoneme_ids"]) for ex in batch],
+                dtype=np.int32
+            )
+            collated["phoneme_sequence_lengths"] = torch.from_numpy(phoneme_lengths).long()
+            
+            # Store input lengths for CTC loss (length of encoder output)
+            # For Whisper encoder output: length = 3000 / 2 = 1500 (with downsampling)
+            input_lengths = np.full(batch_size, 1500, dtype=np.int32)
+            collated["input_lengths"] = torch.from_numpy(input_lengths).long()
+        
         return collated

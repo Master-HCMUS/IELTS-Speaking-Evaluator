@@ -15,6 +15,14 @@ from datasets import load_dataset, DatasetDict
 
 logger = logging.getLogger(__name__)
 
+# Try to import phoneme tokenizer (optional, for phoneme symbol extraction)
+try:
+    from phoneme_tokenizer import PhonemeTokenizer
+    PHONEME_TOKENIZER_AVAILABLE = True
+except ImportError:
+    PHONEME_TOKENIZER_AVAILABLE = False
+    logger.info("PhonemeTokenizer not available - phoneme symbol extraction disabled")
+
 
 class SpeechOcean762DataProcessor:
     """
@@ -248,6 +256,34 @@ class SpeechOcean762DataProcessor:
                     except Exception as e:
                         logger.warning(f"Error extracting from 'words' column: {e}")
                         # Continue without word-level scores if extraction fails
+                
+                # ────────────────────────────────────────────────────────────────
+                # EXTRACT PHONEME SYMBOLS (NEW: for CTC phoneme decoder)
+                # ────────────────────────────────────────────────────────────────
+                if PHONEME_TOKENIZER_AVAILABLE and "words" in example and example["words"] is not None:
+                    try:
+                        words_data = example["words"]
+                        all_phonemes = []
+                        
+                        # Collect all phonemes across all words
+                        for word_entry in words_data:
+                            if "phones" in word_entry:
+                                phones = word_entry["phones"]
+                                if isinstance(phones, (list, tuple)):
+                                    all_phonemes.extend(phones)
+                        
+                        # Tokenize phonemes to IDs
+                        if all_phonemes:
+                            tokenizer = PhonemeTokenizer()
+                            phoneme_ids = tokenizer.encode(all_phonemes)
+                            result["phoneme_ids"] = np.array(phoneme_ids, dtype=np.int32)
+                            result["phoneme_sequence_length"] = len(phoneme_ids)
+                            
+                            logger.debug(f"Extracted {len(all_phonemes)} phonemes: {all_phonemes}")
+                    
+                    except Exception as e:
+                        logger.warning(f"Error extracting phonemes: {e}")
+                        # Continue without phoneme extraction if it fails
                 
                 # ────────────────────────────────────────────────────────────────
                 # COPY AND NORMALIZE UTTERANCE-LEVEL SCORES

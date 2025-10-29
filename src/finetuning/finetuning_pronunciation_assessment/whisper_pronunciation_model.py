@@ -17,6 +17,7 @@ import logging
 import sys
 import os
 import numpy as np
+from torch.nn.utils.rnn import pad_sequence
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,114 @@ class UtteranceLevelAssessmentHead(nn.Module):
         return x.squeeze(-1)  # [batch]
 
 
+class PhonemeDecoderCTC(nn.Module):
+    """CTC-based phoneme decoder head for predicting phone symbols."""
+    
+    def __init__(self, input_dim: int, num_phonemes: int = 75, blank: int = 0):
+        """
+        Initialize CTC-based phoneme decoder.
+        
+        Args:
+            input_dim: Encoder hidden dimension
+            num_phonemes: Number of phoneme tokens in vocabulary
+            blank: Blank token ID for CTC (typically 0)
+        """
+        super().__init__()
+        self.num_phonemes = num_phonemes
+        self.blank = blank
+        
+        # Simple linear projection to phoneme vocabulary
+        self.fc = nn.Linear(input_dim, num_phonemes)
+        
+        # CTC Loss function (will be created during forward if needed)
+        self.ctc_loss_fn = nn.CTCLoss(
+            blank=blank,
+            reduction='mean',
+            zero_infinity=True
+        )
+        
+        logger.info(f"PhonemeDecoderCTC initialized with {num_phonemes} phonemes, blank={blank}")
+    
+    def forward(
+        self,
+        encoder_hidden: torch.Tensor,
+        phoneme_ids: Optional[torch.Tensor] = None,
+        input_lengths: Optional[torch.Tensor] = None,
+        target_lengths: Optional[torch.Tensor] = None
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Forward pass for phoneme prediction.
+        
+        Args:
+            encoder_hidden: Encoder hidden states [batch, seq_len, hidden_dim]
+            phoneme_ids: Target phoneme token IDs [batch, max_target_len] (training only)
+            input_lengths: Length of each sequence in batch [batch] (training only)
+            target_lengths: Length of each target in batch [batch] (training only)
+            
+        Returns:
+            Dictionary with:
+            - 'logits': [batch, seq_len, num_phonemes] - raw logits
+            - 'loss': scalar (only during training when phoneme_ids provided)
+        """
+        # Project encoder hidden to phoneme logits
+        # [batch, seq_len, hidden_dim] -> [batch, seq_len, num_phonemes]
+        logits = self.fc(encoder_hidden)
+        
+        outputs = {'logits': logits}
+        
+        # Compute CTC loss during training
+        if phoneme_ids is not None and input_lengths is not None and target_lengths is not None:
+            # CTC expects: [seq_len, batch, num_phonemes]
+            log_probs = torch.log_softmax(logits, dim=-1)
+            log_probs = log_probs.transpose(0, 1)
+            
+            # Ensure lengths are CPU tensors (CTC loss requirement)
+            if input_lengths.device != torch.device('cpu'):
+                input_lengths = input_lengths.cpu()
+            if target_lengths.device != torch.device('cpu'):
+                target_lengths = target_lengths.cpu()
+            
+            # Compute CTC loss
+            try:
+                loss = self.ctc_loss_fn(log_probs, phoneme_ids, input_lengths, target_lengths)
+                outputs['loss'] = loss
+            except Exception as e:
+                logger.warning(f"CTC loss computation failed: {e}")
+                outputs['loss'] = torch.tensor(0.0, device=encoder_hidden.device, requires_grad=True)
+        
+        return outputs
+    
+    def decode_greedy(self, logits: torch.Tensor) -> List[List[int]]:
+        """
+        Greedy decoding: take argmax of logits and collapse repeated tokens.
+        
+        Args:
+            logits: [batch, seq_len, num_phonemes]
+            
+        Returns:
+            List of decoded sequences (list of token IDs)
+        """
+        batch_size, seq_len, _ = logits.shape
+        
+        # Get argmax predictions
+        predictions = logits.argmax(dim=-1)  # [batch, seq_len]
+        
+        decoded = []
+        for i in range(batch_size):
+            pred_seq = predictions[i].cpu().numpy().tolist()
+            
+            # Collapse repeated tokens
+            collapsed = []
+            for token in pred_seq:
+                if not collapsed or token != collapsed[-1] and token != self.blank:
+                    if token != self.blank:
+                        collapsed.append(token)
+            
+            decoded.append(collapsed)
+        
+        return decoded
+
+
 
 class WhisperPronunciationAssessmentModel(nn.Module):
     """
@@ -158,6 +267,8 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         train_phone_level: bool = True,
         train_utterance_level: bool = True,
         train_transcription: bool = True,
+        train_phoneme_symbols: bool = True,
+        num_phonemes: int = 75,
         freeze_encoder: bool = False,
         freeze_decoder: bool = False,
     ):
@@ -170,6 +281,8 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             train_phone_level: Whether to train phone-level assessment
             train_utterance_level: Whether to train utterance-level assessment
             train_transcription: Whether to train transcription (decoder)
+            train_phoneme_symbols: Whether to train phoneme symbol decoder (CTC)
+            num_phonemes: Number of phoneme tokens in vocabulary (for CTC decoder)
             freeze_encoder: Whether to freeze encoder weights
             freeze_decoder: Whether to freeze decoder weights
         """
@@ -185,6 +298,8 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         self.train_phone_level = train_phone_level
         self.train_utterance_level = train_utterance_level
         self.train_transcription = train_transcription
+        self.train_phoneme_symbols = train_phoneme_symbols
+        self.num_phonemes = num_phonemes
         self.freeze_encoder = freeze_encoder
         self.freeze_decoder = freeze_decoder
     
@@ -252,6 +367,15 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             self.utterance_completeness_head = UtteranceLevelAssessmentHead(hidden_dim)
             self.utterance_total_head = UtteranceLevelAssessmentHead(hidden_dim)
         
+        # Phoneme decoder (CTC-based) for phoneme symbol prediction
+        if self.train_phoneme_symbols:
+            self.phoneme_decoder = PhonemeDecoderCTC(
+                input_dim=hidden_dim,
+                num_phonemes=self.num_phonemes,
+                blank=0
+            )
+            logger.info(f"Phoneme decoder (CTC) initialized with {self.num_phonemes} phonemes")
+        
         self._initialized = True
         logger.info("Model initialized successfully")
 
@@ -261,6 +385,9 @@ class WhisperPronunciationAssessmentModel(nn.Module):
         input_features: torch.Tensor,
         decoder_input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
+        phoneme_ids: Optional[torch.Tensor] = None,
+        input_lengths: Optional[torch.Tensor] = None,
+        phoneme_sequence_lengths: Optional[torch.Tensor] = None,
     ) -> Dict[str, Any]:
         """
         Forward pass for both transcription and assessment.
@@ -269,6 +396,9 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             input_features: Audio mel-spectrogram features [batch, 80, 3000]
             decoder_input_ids: Optional decoder input IDs for training
             attention_mask: Optional attention mask
+            phoneme_ids: Optional phoneme token IDs [batch, max_phoneme_len] for CTC training
+            input_lengths: Length of each input sequence [batch] for CTC
+            phoneme_sequence_lengths: Length of each phoneme sequence [batch] for CTC
             
         Returns:
             Dictionary with:
@@ -276,6 +406,7 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             - 'encoder_hidden_states': Encoder outputs [batch, seq_len, hidden_dim]
             - Frame-level scores: word_accuracy, word_stress, word_total, phone_accuracy
             - Utterance-level scores: utterance_accuracy, fluency, prosodic, completeness, total
+            - Phoneme predictions: phoneme_logits, phoneme_loss (if train_phoneme_symbols=True)
         """
         # Lazy initialization of model and heads
         self._initialize_model()
@@ -321,6 +452,18 @@ class WhisperPronunciationAssessmentModel(nn.Module):
             outputs['utterance_prosodic_logits'] = self.utterance_prosodic_head(encoder_mean)
             outputs['utterance_completeness_logits'] = self.utterance_completeness_head(encoder_mean)
             outputs['utterance_total_logits'] = self.utterance_total_head(encoder_mean)
+        
+        # Phoneme decoder (CTC-based) for phoneme symbol prediction
+        if self.train_phoneme_symbols:
+            phoneme_outputs = self.phoneme_decoder(
+                encoder_hidden=encoder_last_hidden,
+                phoneme_ids=phoneme_ids,
+                input_lengths=input_lengths,
+                target_lengths=phoneme_sequence_lengths
+            )
+            outputs['phoneme_logits'] = phoneme_outputs['logits']
+            if 'loss' in phoneme_outputs:
+                outputs['phoneme_loss'] = phoneme_outputs['loss']
         
         return outputs
     
