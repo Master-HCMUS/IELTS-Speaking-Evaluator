@@ -87,6 +87,18 @@ class PronunciationAssessmentTrainer:
         """
         Compute weighted multi-objective loss including transcription.
         
+        Uses HuberLoss (delta=0.1) for all utterance-level assessments (accuracy, fluency, 
+        prosodic, completeness, total) for robustness to class imbalance and outliers.
+        Scores are normalized to [0, 1] range using Sigmoid activation.
+        Uses MSELoss for word-level and phone-level assessments (more uniform distributions).
+        Uses CrossEntropyLoss for transcription with ignore_index=-100.
+        
+        Huber Loss benefits:
+        - Smooth MSE-like behavior near ground truth (good gradients)
+        - Linear MAE-like behavior for large errors (robust to outliers)
+        - Robust to class imbalance in all utterance-level metrics
+        - Delta=0.1 calibrated for [0, 1] normalized score range
+        
         Args:
             predictions: Model predictions dict
             batch: Batch data dict
@@ -96,6 +108,10 @@ class PronunciationAssessmentTrainer:
         """
         losses = {}
         weights = self.config.loss_weights
+        
+        # Define loss functions
+        mse_loss = nn.MSELoss()
+        huber_loss = nn.HuberLoss(delta=0.1, reduction='mean')  # delta=0.1 for [0,1] scale
         
         # Transcription loss (using cross-entropy on decoder logits)
         if self.config.use_transcription and "transcription_logits" in predictions:
@@ -119,7 +135,7 @@ class PronunciationAssessmentTrainer:
                     shift_labels.view(-1)
                 )
                 
-                weight = weights.get("transcription", 1.0)
+                weight = weights.get("transcription", 0.1)
                 losses["transcription"] = transcription_loss * weight
         
         # Utterance-level losses (fixed, one per example)
@@ -135,7 +151,9 @@ class PronunciationAssessmentTrainer:
             for batch_key, (pred_key, weight_key) in utterance_targets.items():
                 if batch_key in batch and batch[batch_key] is not None:
                     if pred_key in predictions:
-                        loss_val = nn.MSELoss()(
+                        # Use Huber Loss for all utterance-level assessments
+                        # Huber Loss is robust to outliers and imbalanced data for all metrics
+                        loss_val = huber_loss(
                             predictions[pred_key],
                             batch[batch_key]
                         )
