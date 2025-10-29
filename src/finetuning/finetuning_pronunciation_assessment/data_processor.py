@@ -202,13 +202,62 @@ class SpeechOcean762DataProcessor:
                     "input_features": input_features,
                 }
                 
-                # Copy and normalize assessment scores
+                # ────────────────────────────────────────────────────────────────
+                # EXTRACT FROM "words" COLUMN (detailed word/phone level scores)
+                # ────────────────────────────────────────────────────────────────
+                if "words" in example and example["words"] is not None:
+                    try:
+                        words_data = example["words"]
+                        
+                        # Extract word-level scores
+                        word_accuracy_scores = []
+                        word_stress_scores = []
+                        word_total_scores = []
+                        phone_accuracy_scores = []
+                        
+                        for word_entry in words_data:
+                            # Word-level scores
+                            if "accuracy" in word_entry:
+                                word_accuracy_scores.append(float(word_entry["accuracy"]))
+                            if "stress" in word_entry:
+                                word_stress_scores.append(float(word_entry["stress"]))
+                            if "total" in word_entry:
+                                word_total_scores.append(float(word_entry["total"]))
+                            
+                            # Phone-level scores (flatten all phones)
+                            if "phones-accuracy" in word_entry:
+                                phones_acc = word_entry["phones-accuracy"]
+                                if isinstance(phones_acc, (list, tuple)):
+                                    phone_accuracy_scores.extend([float(p) for p in phones_acc])
+                        
+                        # Store extracted scores (will be normalized below)
+                        if word_accuracy_scores:
+                            result["word_accuracy_scores"] = np.array(word_accuracy_scores, dtype=np.float32)
+                        if word_stress_scores:
+                            result["word_stress_scores"] = np.array(word_stress_scores, dtype=np.float32)
+                        if word_total_scores:
+                            result["word_total_scores"] = np.array(word_total_scores, dtype=np.float32)
+                        if phone_accuracy_scores:
+                            result["phone_accuracy_scores"] = np.array(phone_accuracy_scores, dtype=np.float32)
+                        
+                        logger.debug(
+                            f"Extracted from 'words': {len(word_accuracy_scores)} words, "
+                            f"{len(phone_accuracy_scores)} phones"
+                        )
+                    
+                    except Exception as e:
+                        logger.warning(f"Error extracting from 'words' column: {e}")
+                        # Continue without word-level scores if extraction fails
+                
+                # ────────────────────────────────────────────────────────────────
+                # COPY AND NORMALIZE UTTERANCE-LEVEL SCORES
+                # ────────────────────────────────────────────────────────────────
                 assessment_score_keys = [
                     "accuracy", "fluency", "prosodic", "completeness", "total"
                 ]
                 
                 for key in example.keys():
-                    if key not in ["audio", "words", "alignment"]:
+                    if key not in ["audio", "words"]:
                         # Normalize assessment scores if enabled
                         if self.normalize_scores and key in assessment_score_keys:
                             try:
@@ -223,6 +272,35 @@ class SpeechOcean762DataProcessor:
                         else:
                             result[key] = example[key]
                 
+                # ────────────────────────────────────────────────────────────────
+                # NORMALIZE WORD/PHONE SCORES (if they were extracted)
+                # ────────────────────────────────────────────────────────────────
+                word_score_keys = ["word_accuracy_scores", "word_stress_scores", "word_total_scores"]
+                for key in word_score_keys:
+                    if key in result and self.normalize_scores:
+                        try:
+                            scores = result[key]
+                            normalized = np.array(
+                                [self.normalize_assessment_score(s) for s in scores],
+                                dtype=np.float32
+                            )
+                            result[key] = normalized
+                        except Exception as e:
+                            logger.warning(f"Failed to normalize {key}: {e}")
+                
+                # Normalize phone scores (phones are already on [0, 2] scale, so different range)
+                if "phone_accuracy_scores" in result and self.normalize_scores:
+                    try:
+                        scores = result["phone_accuracy_scores"]
+                        # Phones are on [0, 2] scale, normalize to [0, 1]
+                        normalized = np.array(
+                            [self.normalize_assessment_score(s, min_val=0, max_val=2) for s in scores],
+                            dtype=np.float32
+                        )
+                        result["phone_accuracy_scores"] = normalized
+                    except Exception as e:
+                        logger.warning(f"Failed to normalize phone_accuracy_scores: {e}")
+                
                 return result
             
             except Exception as e:
@@ -232,7 +310,7 @@ class SpeechOcean762DataProcessor:
                     "input_features": np.zeros((80, 3000), dtype=np.float32),
                 }
                 for key in example.keys():
-                    if key not in ["audio", "words", "alignment"]:
+                    if key not in ["audio", "words"]:
                         result[key] = example[key]
                 return result
         
