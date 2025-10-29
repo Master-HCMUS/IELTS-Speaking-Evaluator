@@ -367,7 +367,7 @@ class SpeechOcean762DataProcessor:
                 
                 # Remove unnecessary columns
                 columns_to_remove = [col for col in processed.column_names 
-                                    if col in ["words", "alignment"]]
+                                    if col == "words"]
                 if columns_to_remove:
                     processed = processed.remove_columns(columns_to_remove)
                 
