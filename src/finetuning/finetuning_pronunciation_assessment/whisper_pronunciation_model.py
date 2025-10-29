@@ -44,10 +44,19 @@ class FrameLevelAssessmentHead(nn.Module):
             hidden_dim: Hidden dimension for the head
         """
         super().__init__()
+        # Deeper network with batch normalization
         self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.dropout = nn.Dropout(0.1)
-        self.fc2 = nn.Linear(hidden_dim, 1)
+        self.bn1 = nn.BatchNorm1d(hidden_dim)
+        self.dropout1 = nn.Dropout(0.2)
+        
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim // 2)
+        self.bn2 = nn.BatchNorm1d(hidden_dim // 2)
+        self.dropout2 = nn.Dropout(0.2)
+        
+        self.fc3 = nn.Linear(hidden_dim // 2, 1)
+        
         self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -57,12 +66,29 @@ class FrameLevelAssessmentHead(nn.Module):
             x: Input tensor [batch, seq_len, hidden_dim]
             
         Returns:
-            Scores tensor [batch, seq_len] - one score per frame
+            Scores tensor [batch, seq_len] - one score per frame (scaled to [0, 10])
         """
-        x = self.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = self.fc2(x)
-        return x.squeeze(-1)  # [batch, seq_len]
+        # Save original shape for reshaping later
+        batch_size, seq_len, hidden_dim = x.shape
+        
+        # Reshape for batch norm: [batch, seq_len, hidden_dim] -> [batch*seq_len, hidden_dim]
+        x = x.reshape(-1, hidden_dim)
+        
+        # First layer
+        x = self.relu(self.bn1(self.fc1(x)))
+        x = self.dropout1(x)
+        
+        # Second layer
+        x = self.relu(self.bn2(self.fc2(x)))
+        x = self.dropout2(x)
+        
+        # Output layer with sigmoid scaling to [0, 10]
+        x = self.fc3(x)
+        x = self.sigmoid(x) * 10.0
+        
+        # Reshape back: [batch*seq_len, 1] -> [batch, seq_len]
+        x = x.reshape(batch_size, seq_len)
+        return x
 
 
 class UtteranceLevelAssessmentHead(nn.Module):
@@ -77,10 +103,19 @@ class UtteranceLevelAssessmentHead(nn.Module):
             hidden_dim: Hidden dimension for the head
         """
         super().__init__()
+        # Deeper network with batch normalization
         self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.dropout = nn.Dropout(0.1)
-        self.fc2 = nn.Linear(hidden_dim, 1)
+        self.bn1 = nn.BatchNorm1d(hidden_dim)
+        self.dropout1 = nn.Dropout(0.2)
+        
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim // 2)
+        self.bn2 = nn.BatchNorm1d(hidden_dim // 2)
+        self.dropout2 = nn.Dropout(0.2)
+        
+        self.fc3 = nn.Linear(hidden_dim // 2, 1)
+        
         self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -90,11 +125,20 @@ class UtteranceLevelAssessmentHead(nn.Module):
             x: Input tensor [batch, hidden_dim] (mean-pooled)
             
         Returns:
-            Scores tensor [batch] - one score per utterance
+            Scores tensor [batch] - one score per utterance (scaled to [0, 10])
         """
-        x = self.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = self.fc2(x)
+        # First layer
+        x = self.relu(self.bn1(self.fc1(x)))
+        x = self.dropout1(x)
+        
+        # Second layer
+        x = self.relu(self.bn2(self.fc2(x)))
+        x = self.dropout2(x)
+        
+        # Output layer with sigmoid scaling to [0, 10]
+        x = self.fc3(x)
+        x = self.sigmoid(x) * 10.0
+        
         return x.squeeze(-1)  # [batch]
 
 
