@@ -106,7 +106,7 @@ def get_quick_test_config() -> PronunciationTrainingConfig:
         learning_rate=1e-4,
         train_phone_level=False,  # Skip phone level for speed
         loss_weights={
-            'asr': 1.0,
+            'transcription': 0.2,
             'word_accuracy': 1.0,
             'word_stress': 0.5,
             'word_total': 1.0,
@@ -134,7 +134,7 @@ def get_development_config() -> PronunciationTrainingConfig:
         train_utterance_level=True,
         include_transcription=True,
         loss_weights={
-            'asr': 1.0,
+            'transcription': 1.0,
             'word_accuracy': 1.0,
             'word_stress': 0.5,
             'word_total': 1.0,
@@ -166,7 +166,7 @@ def get_production_config() -> PronunciationTrainingConfig:
         train_utterance_level=True,
         include_transcription=True,
         loss_weights={
-            'asr': 1.0,
+            'transcription': 1.0,
             'word_accuracy': 1.2,
             'word_stress': 0.6,
             'word_total': 1.0,
@@ -195,7 +195,7 @@ def get_transcription_only_config() -> PronunciationTrainingConfig:
         train_utterance_level=False,
         include_transcription=True,
         loss_weights={
-            'asr': 1.0,
+            'transcription': 1.0,
             'word_accuracy': 0.0,
             'word_stress': 0.0,
             'word_total': 0.0,
@@ -224,7 +224,7 @@ def get_assessment_only_config() -> PronunciationTrainingConfig:
         train_utterance_level=True,
         include_transcription=False,
         loss_weights={
-            'asr': 0.0,
+            'transcription': 0.0,
             'word_accuracy': 1.0,
             'word_stress': 0.5,
             'word_total': 1.0,
@@ -253,7 +253,7 @@ def get_phone_focused_config() -> PronunciationTrainingConfig:
         train_utterance_level=True,
         include_transcription=True,
         loss_weights={
-            'asr': 0.8,
+            'transcription': 0.8,
             'word_accuracy': 0.8,
             'word_stress': 0.4,
             'word_total': 0.8,
