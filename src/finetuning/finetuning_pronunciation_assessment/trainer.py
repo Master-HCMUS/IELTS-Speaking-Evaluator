@@ -90,7 +90,6 @@ class PronunciationAssessmentTrainer:
         Uses HuberLoss (delta=0.1) for all utterance-level assessments (accuracy, fluency, 
         prosodic, completeness, total) for robustness to class imbalance and outliers.
         Scores are normalized to [0, 1] range using Sigmoid activation.
-        Uses MSELoss for word-level and phone-level assessments (more uniform distributions).
         Uses CrossEntropyLoss for transcription with ignore_index=-100.
         
         Huber Loss benefits:
@@ -110,7 +109,6 @@ class PronunciationAssessmentTrainer:
         weights = self.config.loss_weights
         
         # Define loss functions
-        mse_loss = nn.MSELoss()
         huber_loss = nn.HuberLoss(delta=0.1, reduction='mean')  # delta=0.1 for [0,1] scale
         
         # Transcription loss (using cross-entropy on decoder logits)
@@ -182,7 +180,7 @@ class PronunciationAssessmentTrainer:
                             min_len = min(pred.shape[0], target.shape[0])
                             pred = pred[:min_len]
                             target = target[:min_len]
-                            example_losses.append(nn.MSELoss()(pred, target))
+                            example_losses.append(huber_loss(pred, target))
                         
                         if example_losses:
                             loss_val = torch.stack(example_losses).mean()
@@ -201,7 +199,7 @@ class PronunciationAssessmentTrainer:
                         min_len = min(pred.shape[0], target.shape[0])
                         pred = pred[:min_len]
                         target = target[:min_len]
-                        example_losses.append(nn.MSELoss()(pred, target))
+                        example_losses.append(huber_loss(pred, target))
                     
                     if example_losses:
                         loss_val = torch.stack(example_losses).mean()

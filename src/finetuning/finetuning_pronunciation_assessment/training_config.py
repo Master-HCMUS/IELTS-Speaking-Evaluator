@@ -112,6 +112,7 @@ def get_quick_test_config() -> PronunciationTrainingConfig:
             'word_accuracy': 1.0,
             'word_stress': 0.5,
             'word_total': 1.0,
+            'phone_accuracy': 1.0,
             'utterance_accuracy': 1.0,
             'utterance_fluency': 1.0,
             'utterance_prosodic': 1.0,
