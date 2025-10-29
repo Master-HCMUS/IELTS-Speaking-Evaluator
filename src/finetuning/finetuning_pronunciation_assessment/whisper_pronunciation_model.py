@@ -69,6 +69,7 @@ class FrameLevelAssessmentHead(nn.Module):
         Returns:
             Scores tensor [batch, seq_len] - one score per frame (normalized to [0, 1])
         """
+        print("forward Frame")
         # Save original shape for reshaping later
         batch_size, seq_len, hidden_dim = x.shape
         
@@ -131,6 +132,7 @@ class UtteranceLevelAssessmentHead(nn.Module):
         # First layer
         x = self.relu(self.bn1(self.fc1(x)))
         x = self.dropout1(x)
+        print("forward Utterance")
         
         # Second layer
         x = self.relu(self.bn2(self.fc2(x)))
@@ -195,7 +197,7 @@ class PhonemeDecoderCTC(nn.Module):
         # Project encoder hidden to phoneme logits
         # [batch, seq_len, hidden_dim] -> [batch, seq_len, num_phonemes]
         logits = self.fc(encoder_hidden)
-        
+        print("forward CTC")
         outputs = {'logits': logits}
         
         # Compute CTC loss during training
