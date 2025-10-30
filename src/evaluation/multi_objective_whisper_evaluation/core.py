@@ -148,6 +148,9 @@ class MultiObjectiveEvaluationResult:
     model_scores: Dict[str, float] = None
     expert_scores: Dict[str, float] = None
     
+    # Word-level scores (similar to Azure Speech API)
+    word_level_scores: List[Dict[str, Any]] = None
+    
     # Error information
     error: str = ""
     
@@ -162,6 +165,8 @@ class MultiObjectiveEvaluationResult:
                 'accuracy': 0.0, 'fluency': 0.0,
                 'completeness': 0.0, 'prosodic': 0.0
             }
+        if self.word_level_scores is None:
+            self.word_level_scores = []
 
 
 class MultiObjectiveWhisperAssessor:
@@ -231,13 +236,13 @@ class MultiObjectiveWhisperAssessor:
                 
                 logger.info("Checkpoint loaded successfully")
                 
-                # Load processor from model directory (if exists) or use default
-                model_dir = self.model_path.parent
+                # For .pt files, use the processor from the base model that was fine-tuned
+                # Since we're loading a fine-tuned whisper-base model, use whisper-base processor
                 try:
-                    self.processor = AutoProcessor.from_pretrained(str(model_dir))
-                    logger.info(f"Loaded processor from {model_dir}")
+                    self.processor = WhisperProcessor.from_pretrained("openai/whisper-base")
+                    logger.info("Loaded WhisperProcessor for fine-tuned model (whisper-base)")
                 except:
-                    logger.info("Using default Whisper processor")
+                    logger.info("Using AutoProcessor as fallback")
                     self.processor = AutoProcessor.from_pretrained("openai/whisper-base")
             else:
                 # Load from model directory (standard HuggingFace format)
@@ -289,6 +294,14 @@ class MultiObjectiveWhisperAssessor:
                 
                 # Assessment scores
                 assessment_scores = self.model.predict_assessment_scores(input_features)
+                
+                # Generate phonemes using the new method
+                phoneme_result = self.model.generate_phonemes(
+                    input_features,
+                    return_confidence=True,
+                    return_frame_level=True,
+                    collapse_repeated=True
+                )
             
             # Clean reference text
             reference_text = reference_text.strip()
@@ -301,11 +314,18 @@ class MultiObjectiveWhisperAssessor:
             # Extract assessment scores
             model_scores = self._extract_assessment_scores(assessment_scores)
             
+            # Generate word-level scores from phonemes and predicted text
+            word_level_scores = self._generate_word_level_scores(
+                predicted_text, phoneme_result, model_scores
+            )
+            
             return {
                 'predicted_text': predicted_text,
                 'reference_text': reference_text,
                 'quality_metrics': quality_metrics,
                 'model_scores': model_scores,
+                'word_level_scores': word_level_scores,
+                'phoneme_result': phoneme_result,
                 'success': True
             }
             
@@ -319,6 +339,8 @@ class MultiObjectiveWhisperAssessor:
                     'accuracy': 0.0, 'fluency': 0.0,
                     'completeness': 0.0, 'prosodic': 0.0
                 },
+                'word_level_scores': [],
+                'phoneme_result': None,
                 'success': False,
                 'error': str(e)
             }
@@ -417,7 +439,7 @@ class MultiObjectiveWhisperAssessor:
         return cer
     
     def _extract_assessment_scores(self, assessment_scores: Dict[str, Any]) -> Dict[str, float]:
-        """Extract and normalize assessment scores from model predictions."""
+        """Extract assessment scores from model predictions and keep in [0-1] range."""
         scores = {
             'accuracy': 0.0,
             'fluency': 0.0,
@@ -430,33 +452,34 @@ class MultiObjectiveWhisperAssessor:
             utterance = assessment_scores.get('utterance_level', {})
             
             if 'accuracy' in utterance:
-                scores['accuracy'] = self._normalize_score(
-                    utterance['accuracy'].mean().item() if hasattr(utterance['accuracy'], 'mean') else float(utterance['accuracy']),
-                    from_range=(0, 10), to_range=(0, 10)
-                )
+                raw_value = utterance['accuracy'].mean().item() if hasattr(utterance['accuracy'], 'mean') else float(utterance['accuracy'])
+                scores['accuracy'] = self._clamp_to_01_range(raw_value)
             
             if 'fluency' in utterance:
-                scores['fluency'] = self._normalize_score(
-                    utterance['fluency'].mean().item() if hasattr(utterance['fluency'], 'mean') else float(utterance['fluency']),
-                    from_range=(0, 10), to_range=(0, 10)
-                )
+                raw_value = utterance['fluency'].mean().item() if hasattr(utterance['fluency'], 'mean') else float(utterance['fluency'])
+                scores['fluency'] = self._clamp_to_01_range(raw_value)
             
             if 'completeness' in utterance:
-                scores['completeness'] = self._normalize_score(
-                    utterance['completeness'].mean().item() if hasattr(utterance['completeness'], 'mean') else float(utterance['completeness']),
-                    from_range=(0, 10), to_range=(0, 10)
-                )
+                raw_value = utterance['completeness'].mean().item() if hasattr(utterance['completeness'], 'mean') else float(utterance['completeness'])
+                scores['completeness'] = self._clamp_to_01_range(raw_value)
             
             if 'prosodic' in utterance:
-                scores['prosodic'] = self._normalize_score(
-                    utterance['prosodic'].mean().item() if hasattr(utterance['prosodic'], 'mean') else float(utterance['prosodic']),
-                    from_range=(0, 10), to_range=(0, 10)
-                )
+                raw_value = utterance['prosodic'].mean().item() if hasattr(utterance['prosodic'], 'mean') else float(utterance['prosodic'])
+                scores['prosodic'] = self._clamp_to_01_range(raw_value)
             
         except Exception as e:
             logger.warning(f"Failed to extract assessment scores: {e}")
         
         return scores
+    
+    def _clamp_to_01_range(self, value: float) -> float:
+        """
+        Clamp model output to [0-1] range.
+        
+        The model should output values in [0-1] range, but we clamp to ensure
+        consistency with normalized expert scores.
+        """
+        return max(0.0, min(1.0, float(value)))
     
     def _normalize_score(self, value: float, from_range: Tuple[float, float], 
                          to_range: Tuple[float, float]) -> float:
@@ -475,6 +498,115 @@ class MultiObjectiveWhisperAssessor:
         
         # Clamp to target range
         return max(to_min, min(to_max, scaled))
+    
+    def _generate_word_level_scores(
+        self,
+        predicted_text: str,
+        phoneme_result: Optional[Dict[str, Any]],
+        model_scores: Dict[str, float]
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate word-level scores similar to Azure Speech Service API format.
+        
+        Args:
+            predicted_text: Transcribed text
+            phoneme_result: Result from model.generate_phonemes()
+            model_scores: Overall model assessment scores
+            
+        Returns:
+            List of word-level score dictionaries
+        """
+        word_level_scores = []
+        
+        if not predicted_text or not phoneme_result:
+            return word_level_scores
+        
+        try:
+            # Get phoneme symbols and confidence scores
+            phoneme_symbols = phoneme_result.get('phoneme_symbols', [])
+            phoneme_confidence = phoneme_result.get('phoneme_confidence', [])
+            
+            # Split text into words
+            words = predicted_text.split()
+            
+            if not words or not phoneme_symbols:
+                return word_level_scores
+            
+            # Estimate phonemes per word (simple approximation)
+            # This is a rough mapping since we don't have perfect word-phoneme alignment
+            phonemes_per_word = len(phoneme_symbols) // len(words) if words else 0
+            phoneme_remainder = len(phoneme_symbols) % len(words) if words else 0
+            
+            phoneme_idx = 0
+            
+            for word_idx, word in enumerate(words):
+                # Calculate how many phonemes for this word
+                num_phonemes_for_word = phonemes_per_word
+                if word_idx < phoneme_remainder:
+                    num_phonemes_for_word += 1
+                
+                # Extract phonemes for this word
+                word_phonemes = []
+                word_phoneme_confidences = []
+                
+                for _ in range(num_phonemes_for_word):
+                    if phoneme_idx < len(phoneme_symbols):
+                        phoneme_symbol = phoneme_symbols[phoneme_idx]
+                        phoneme_conf = phoneme_confidence[phoneme_idx] if phoneme_idx < len(phoneme_confidence) else 5.0
+                        
+                        word_phonemes.append(phoneme_symbol)
+                        word_phoneme_confidences.append(phoneme_conf)
+                        phoneme_idx += 1
+                
+                # Calculate word accuracy score based on phoneme confidence and model scores
+                if word_phoneme_confidences:
+                    avg_phoneme_confidence = sum(word_phoneme_confidences) / len(word_phoneme_confidences)
+                    # Scale from [0-10] to [0-100] and blend with model accuracy
+                    word_accuracy = (avg_phoneme_confidence * 10) * 0.7 + (model_scores.get('accuracy', 0) * 10) * 0.3
+                    word_accuracy = min(100.0, max(0.0, word_accuracy))
+                else:
+                    word_accuracy = model_scores.get('accuracy', 0) * 10
+                
+                # Create phoneme details in Azure format
+                phoneme_details = []
+                for ph_symbol, ph_conf in zip(word_phonemes, word_phoneme_confidences):
+                    phoneme_details.append({
+                        "phoneme": ph_symbol.lower(),  # Azure uses lowercase
+                        "accuracy_score": ph_conf * 10  # Scale to [0-100]
+                    })
+                
+                # Determine error type based on accuracy
+                if word_accuracy >= 80:
+                    error_type = "None"
+                elif word_accuracy >= 60:
+                    error_type = "Mispronunciation"
+                else:
+                    error_type = "Omission"
+                
+                word_score = {
+                    "word": word.lower(),
+                    "accuracy_score": word_accuracy,
+                    "error_type": error_type,
+                    "phonemes": phoneme_details
+                }
+                
+                word_level_scores.append(word_score)
+            
+        except Exception as e:
+            logger.warning(f"Error generating word-level scores: {e}")
+            # Fallback: create basic word scores without phoneme details
+            words = predicted_text.split()
+            base_accuracy = model_scores.get('accuracy', 0) * 10
+            
+            for word in words:
+                word_level_scores.append({
+                    "word": word.lower(),
+                    "accuracy_score": base_accuracy,
+                    "error_type": "None" if base_accuracy >= 80 else "Mispronunciation",
+                    "phonemes": []
+                })
+        
+        return word_level_scores
 
 
 class MultiObjectiveWhisperModelEvaluator:
@@ -492,6 +624,30 @@ class MultiObjectiveWhisperModelEvaluator:
         self.evaluation_results: List[MultiObjectiveEvaluationResult] = []
         
         logger.info(f"Initialized MultiObjectiveWhisperModelEvaluator with model: {model_path}")
+    
+    def _normalize_expert_score(self, score: float, min_val: float = 0, max_val: float = 10) -> float:
+        """
+        Normalize expert score from [0-10] to [0-1] to match model output range.
+        
+        This is critical for fair comparison - the model outputs normalized scores [0-1]
+        while expert annotations are in raw scale [0-10].
+        
+        Args:
+            score: Expert score in [0-10] range
+            min_val: Minimum value in original scale (default: 0)
+            max_val: Maximum value in original scale (default: 10)
+            
+        Returns:
+            Normalized score in [0-1] range
+        """
+        if max_val <= min_val:
+            return 0.5  # Default to middle value if invalid range
+        
+        # Clamp score to valid range before normalizing
+        clamped_score = max(min_val, min(max_val, score))
+        normalized = (clamped_score - min_val) / (max_val - min_val)
+        
+        return float(normalized)
     
     def load_dataset(self, split: str = "test", max_samples: Optional[int] = None) -> bool:
         """Load the SpeechOcean762 dataset."""
@@ -539,12 +695,12 @@ class MultiObjectiveWhisperModelEvaluator:
             # Transcribe and assess
             result = self.assessor.transcribe_and_assess(audio_path, reference_text=sample['text'])
             
-            # Extract expert scores
+            # Extract expert scores and normalize to [0-1] to match model output range
             expert_scores = {
-                'accuracy': float(sample['accuracy']),
-                'fluency': float(sample['fluency']),
-                'completeness': float(sample['completeness']),
-                'prosodic': float(sample['prosodic'])
+                'accuracy': self._normalize_expert_score(float(sample['accuracy'])),
+                'fluency': self._normalize_expert_score(float(sample['fluency'])),
+                'completeness': self._normalize_expert_score(float(sample['completeness'])),
+                'prosodic': self._normalize_expert_score(float(sample['prosodic']))
             }
             
             # Create evaluation result
@@ -564,6 +720,7 @@ class MultiObjectiveWhisperModelEvaluator:
                     'completeness': 0.0, 'prosodic': 0.0
                 }),
                 expert_scores=expert_scores,
+                word_level_scores=result.get('word_level_scores', []),
                 error=result.get('error', '')
             )
             
@@ -583,6 +740,7 @@ class MultiObjectiveWhisperModelEvaluator:
                 text=sample.get('text', ''),
                 speaker=sample.get('speaker', 'unknown'),
                 success=False,
+                word_level_scores=[],
                 error=str(e)
             )
     
@@ -743,6 +901,7 @@ class MultiObjectiveWhisperModelEvaluator:
                 },
                 'model_scores': result.model_scores,
                 'expert_scores': result.expert_scores,
+                'word_level_scores': result.word_level_scores,
                 'error': result.error
             })
         
@@ -807,6 +966,7 @@ class MultiObjectiveWhisperModelEvaluator:
         print(f"\n[MODEL INFO]")
         print(f"   Model path: {self.model_path}")
         print(f"   Model name: {self.model_path.name}")
+        print(f"   NOTE: All scores normalized to [0-1] range for fair comparison")
         
         print("\n[STATISTICS]")
         print(f"   Total samples: {metrics.total_samples}")
@@ -820,23 +980,28 @@ class MultiObjectiveWhisperModelEvaluator:
         print(f"   CER (Character Error Rate): {metrics.cer:.3f}")
         print(f"   BLEU Score: {metrics.bleu:.3f}")
         
+        print(f"\n[SCORE NORMALIZATION INFO]")
+        print(f"   Expert scores: Normalized from [0-10] to [0-1]")
+        print(f"   Model scores: Direct output in [0-1] range")
+        print(f"   This ensures fair comparison between model and expert assessments")
+        
         print(f"\n[CORRELATION WITH EXPERTS]")
         print(f"   Accuracy:    {metrics.accuracy_correlation:.3f}")
         print(f"   Fluency:     {metrics.fluency_correlation:.3f}")
         print(f"   Completeness: {metrics.completeness_correlation:.3f}")
         print(f"   Prosodic:    {metrics.prosodic_correlation:.3f}")
         
-        print(f"\n[MAE - Mean Absolute Error]")
-        print(f"   Accuracy:    {metrics.accuracy_mae:.2f}")
-        print(f"   Fluency:     {metrics.fluency_mae:.2f}")
-        print(f"   Completeness: {metrics.completeness_mae:.2f}")
-        print(f"   Prosodic:    {metrics.prosodic_mae:.2f}")
+        print(f"\n[MAE - Mean Absolute Error (normalized [0-1] scale)]")
+        print(f"   Accuracy:    {metrics.accuracy_mae:.3f}")
+        print(f"   Fluency:     {metrics.fluency_mae:.3f}")
+        print(f"   Completeness: {metrics.completeness_mae:.3f}")
+        print(f"   Prosodic:    {metrics.prosodic_mae:.3f}")
         
-        print(f"\n[RMSE - Root Mean Square Error]")
-        print(f"   Accuracy:    {metrics.accuracy_rmse:.2f}")
-        print(f"   Fluency:     {metrics.fluency_rmse:.2f}")
-        print(f"   Completeness: {metrics.completeness_rmse:.2f}")
-        print(f"   Prosodic:    {metrics.prosodic_rmse:.2f}")
+        print(f"\n[RMSE - Root Mean Square Error (normalized [0-1] scale)]")
+        print(f"   Accuracy:    {metrics.accuracy_rmse:.3f}")
+        print(f"   Fluency:     {metrics.fluency_rmse:.3f}")
+        print(f"   Completeness: {metrics.completeness_rmse:.3f}")
+        print(f"   Prosodic:    {metrics.prosodic_rmse:.3f}")
         
         print(f"\n[INTERPRETATION]")
         avg_correlation = np.mean([
