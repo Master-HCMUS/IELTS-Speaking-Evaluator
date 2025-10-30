@@ -24,6 +24,8 @@ from components import (
     AssessmentFormComponent,
     ResultsDisplayComponent,
     HelpTabComponent,
+    LandingPageComponent,
+    LearningPlanComponent,
 )
 
 try:
@@ -113,90 +115,155 @@ def main():
     </style>
     """, unsafe_allow_html=True)
     
+    # Add landing page custom CSS
+    LandingPageComponent.render_custom_css()
+    
+    # Add learning plan custom CSS
+    LearningPlanComponent.render_custom_css()
+    
     # Initialize session state
     if "service_initialized" not in st.session_state:
         st.session_state.service_initialized = False
         st.session_state.service = None
         st.session_state.assessment_result = None
+        st.session_state.show_landing = True
+        st.session_state.current_page = "landing"
+        st.session_state.learning_plan_data = None
     
-    # Header
-    st.title("🎤 English Pronunciation Assessment")
-    st.markdown("*Improve your English pronunciation with instant feedback*")
+    # Navigation callbacks
+    def start_assessment():
+        """Callback for starting the assessment."""
+        st.session_state.current_page = "assessment"
+        st.session_state.show_landing = False
+        # Initialize service when user wants to start assessment
+        if not st.session_state.service_initialized:
+            with st.spinner("🔄 Initializing pronunciation assessment service..."):
+                service = initialize_service()
+                if service:
+                    st.session_state.service = service
+                    st.session_state.service_initialized = True
+                    st.success("✅ Service initialized successfully!")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to initialize service. Please check your model files.")
+                    return
     
-    # Render sidebar
-    SidebarComponent.render(
-        st.session_state.service_initialized,
-        st.session_state.service
-    )
+    def go_back_to_landing():
+        """Callback for going back to landing page."""
+        st.session_state.current_page = "landing"
+        st.session_state.show_landing = True
     
-    # Main tabs
-    tab1, tab2, tab3 = st.tabs(["🎙️ Assessment", "📊 History", "ℹ️ Help"])
-    
-    with tab1:
-        # Render instructions
-        AssessmentFormComponent.render_instructions()
+    # Show landing page or main app based on navigation state
+    if st.session_state.current_page == "landing":
+        # Landing page
+        LandingPageComponent.render(on_start_test=start_assessment)
         
-        # Check service
-        if not st.session_state.service_initialized or not st.session_state.service:
-            st.warning("⏳ Service not initialized. Please wait...")
-            st.stop()
+    elif st.session_state.current_page == "learning_plan":
+        # Learning plan page
+        if st.session_state.learning_plan_data:
+            LearningPlanComponent.render_learning_plan(st.session_state.learning_plan_data)
+        else:
+            st.error("❌ No assessment data found. Please take an assessment first.")
+            if st.button("🎤 Take Assessment"):
+                start_assessment()
         
-        # Render sentence selection
-        target_sentence = AssessmentFormComponent.render_sentence_selection()
+    else:
+        # Main application interface
         
-        if not target_sentence:
-            st.warning("Please enter or select a sentence first.")
-            st.stop()
+        # Header with back button
+        col1, col2 = st.columns([1, 5])
+        with col1:
+            if st.button("← Back to Home", help="Return to landing page"):
+                go_back_to_landing()
+                st.rerun()
         
-        # Render audio recording
-        audio_data, assess_button = AssessmentFormComponent.render_audio_recording()
+        with col2:
+            st.title("🎤 English Pronunciation Assessment")
+            st.markdown("*Improve your English pronunciation with instant feedback*")
         
-        # Process audio and assess
-        if assess_button and audio_data is not None:
-            try:
-                with st.spinner("🔄 Processing audio and assessing pronunciation..."):
-                    # Convert UploadedFile to bytes if needed
-                    if hasattr(audio_data, 'read'):
-                        audio_bytes = audio_data.read()
-                    else:
-                        audio_bytes = audio_data
-                    
-                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-                        tmp_file.write(audio_bytes)
-                        tmp_path = tmp_file.name
-                    
-                    # Assess
-                    result = st.session_state.service.assess_pronunciation(
-                        file_path=tmp_path,
-                        target_text=target_sentence
-                    )
-                    
-                    st.session_state.assessment_result = result
-                    
-                    # Clean up
-                    import os
-                    try:
-                        os.unlink(tmp_path)
-                    except:
-                        pass
+        # Render sidebar
+        SidebarComponent.render(
+            st.session_state.service_initialized,
+            st.session_state.service
+        )
+        
+        # Main tabs
+        tab1, tab2, tab3 = st.tabs(["🎙️ Assessment", "📊 History", "ℹ️ Help"])
+        
+        with tab1:
+            # Render instructions
+            AssessmentFormComponent.render_instructions()
             
-            except Exception as e:
-                st.error(f"❌ Error during assessment: {e}")
-                st.error(traceback.format_exc())
+            # Check service
+            if not st.session_state.service_initialized or not st.session_state.service:
+                st.warning("⏳ Service not initialized. Please wait...")
+                with st.spinner("🔄 Initializing pronunciation assessment service..."):
+                    service = initialize_service()
+                    if service:
+                        st.session_state.service = service
+                        st.session_state.service_initialized = True
+                        st.success("✅ Service initialized successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to initialize service. Please check your model files.")
+                        st.stop()
+            
+            # Render sentence selection
+            target_sentence = AssessmentFormComponent.render_sentence_selection()
+            
+            if not target_sentence:
+                st.warning("Please enter or select a sentence first.")
+                st.stop()
+            
+            # Render audio recording
+            audio_data, assess_button = AssessmentFormComponent.render_audio_recording()
+            
+            # Process audio and assess
+            if assess_button and audio_data is not None:
+                try:
+                    with st.spinner("🔄 Processing audio and assessing pronunciation..."):
+                        # Convert UploadedFile to bytes if needed
+                        if hasattr(audio_data, 'read'):
+                            audio_bytes = audio_data.read()
+                        else:
+                            audio_bytes = audio_data
+                        
+                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                            tmp_file.write(audio_bytes)
+                            tmp_path = tmp_file.name
+                        
+                        # Assess
+                        result = st.session_state.service.assess_pronunciation(
+                            file_path=tmp_path,
+                            target_text=target_sentence
+                        )
+                        
+                        st.session_state.assessment_result = result
+                        
+                        # Clean up
+                        import os
+                        try:
+                            os.unlink(tmp_path)
+                        except:
+                            pass
+                
+                except Exception as e:
+                    st.error(f"❌ Error during assessment: {e}")
+                    st.error(traceback.format_exc())
+            
+            # Display results
+            if st.session_state.assessment_result:
+                ResultsDisplayComponent.render_results(
+                    st.session_state.assessment_result,
+                    target_sentence
+                )
         
-        # Display results
-        if st.session_state.assessment_result:
-            ResultsDisplayComponent.render_results(
-                st.session_state.assessment_result,
-                target_sentence
-            )
-    
-    with tab2:
-        st.subheader("📚 Assessment History")
-        st.info("History feature coming soon! Your assessments will be saved here.")
-    
-    with tab3:
-        HelpTabComponent.render()
+        with tab2:
+            st.subheader("📚 Assessment History")
+            st.info("History feature coming soon! Your assessments will be saved here.")
+        
+        with tab3:
+            HelpTabComponent.render()
 
 
 if __name__ == "__main__":

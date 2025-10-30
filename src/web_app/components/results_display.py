@@ -226,6 +226,22 @@ class ResultsDisplayComponent:
             st.warning("⚠️ Your pronunciation needs improvement. Focus on words with low scores.")
         else:
             st.error("❌ Pronunciation needs significant improvement. Consider practicing more slowly.")
+        
+        # Show learning plan button if score needs improvement
+        if overall_score < 7:
+            st.markdown("---")
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button(
+                    "📚 Get Personalized Learning Plan",
+                    type="primary",
+                    use_container_width=True,
+                    help="Get a customized plan to improve your pronunciation"
+                ):
+                    # Store the current assessment result for the learning plan
+                    st.session_state.learning_plan_data = st.session_state.assessment_result
+                    st.session_state.current_page = "learning_plan"
+                    st.rerun()
     
     @staticmethod
     def render_results(result: Dict[str, Any], target_text: str) -> None:
