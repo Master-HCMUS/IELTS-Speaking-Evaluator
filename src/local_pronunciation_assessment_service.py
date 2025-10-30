@@ -20,13 +20,6 @@ from transformers import WhisperProcessor
 
 logger = logging.getLogger(__name__)
 
-# ARPAbet phoneme vocabulary (same as in phoneme_tokenizer.py)
-PHONEME_VOCAB = {
-    'AA', 'AE', 'AH', 'AO', 'AW', 'AY', 'B', 'CH', 'D', 'DH', 'EH', 'ER', 'EY',
-    'F', 'G', 'HH', 'IH', 'IY', 'JH', 'K', 'L', 'M', 'N', 'NG', 'OW', 'OY', 'P',
-    'R', 'S', 'SH', 'T', 'TH', 'UH', 'UW', 'V', 'W', 'Y', 'Z', 'ZH'
-}
-
 
 class LocalPronunciationAssessmentService:
     """
@@ -357,60 +350,6 @@ class LocalPronunciationAssessmentService:
                 # Apply penalty to scores if content doesn't match
                 if similarity < 0.75:
                     result = self._apply_content_penalty(result, similarity)
-            
-            # Extract and decode phoneme predictions using the new method
-            try:
-                # Use the new generate_phonemes method with full details
-                phoneme_result = self.model.generate_phonemes(
-                    mel_spec,
-                    return_confidence=True,
-                    return_frame_level=True,
-                    collapse_repeated=True
-                )
-                
-                if phoneme_result:
-                    # Transform result to expected format
-                    result['phonemes'] = {
-                        'phonemes': phoneme_result.get('phoneme_symbols', []),
-                        'phoneme_ids': phoneme_result.get('phoneme_ids', []),
-                        'confidence': phoneme_result.get('phoneme_confidence', []),
-                        'num_phonemes': phoneme_result.get('num_phonemes', 0),
-                        'sequence_length': phoneme_result.get('sequence_length', 0),
-                        'blank_frames_removed': phoneme_result.get('blank_frames_removed', 0),
-                        'repeated_frames_collapsed': phoneme_result.get('repeated_frames_collapsed', 0),
-                        'frame_confidence': phoneme_result.get('frame_confidence', []),
-                        'avg_confidence': float(np.mean(phoneme_result.get('phoneme_confidence', [0])))
-                            if phoneme_result.get('phoneme_confidence') else 0.0,
-                        'available': True
-                    }
-                else:
-                    # Phoneme decoder not available
-                    result['phonemes'] = {
-                        'phonemes': [],
-                        'phoneme_ids': [],
-                        'confidence': [],
-                        'num_phonemes': 0,
-                        'sequence_length': 0,
-                        'blank_frames_removed': 0,
-                        'repeated_frames_collapsed': 0,
-                        'frame_confidence': [],
-                        'avg_confidence': 0.0,
-                        'available': False
-                    }
-            except Exception as e:
-                logger.warning(f"Could not extract phoneme predictions: {e}")
-                result['phonemes'] = {
-                    'phonemes': [],
-                    'phoneme_ids': [],
-                    'confidence': [],
-                    'num_phonemes': 0,
-                    'sequence_length': 0,
-                    'blank_frames_removed': 0,
-                    'repeated_frames_collapsed': 0,
-                    'frame_confidence': [],
-                    'avg_confidence': 0.0,
-                    'available': False
-                }
             
             logger.info(f"Assessment complete. Utterance scores: {result['scores']['utterance_level']}")
             logger.info(f"Transcript: {transcript}")
